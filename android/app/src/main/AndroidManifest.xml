@@ -1,0 +1,118 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      PaperOS declares NO storage permissions.
+
+      On Android 11+ (API 30) broad filesystem access cannot be obtained without
+      MANAGE_EXTERNAL_STORAGE, which Google Play restricts to file managers and
+      backup tools. PaperOS does not need it: imports go through the Storage
+      Access Framework (file_picker) and every document is then copied into
+      app-private storage, which needs no permission at all.
+
+      READ_EXTERNAL_STORAGE is not requested either. SAF grants are per-file
+      and per-session, and PaperOS never re-reads the original after import.
+    -->
+
+    <application
+        android:label="@string/app_name"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:enableOnBackInvokedCallback="true"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:supportsRtl="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="dev.paperos.app"
+            android:stateNotNeeded="true"
+            android:excludeFromRecents="false"
+            android:clearTaskOnLaunch="false"
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme" />
+
+            <!--
+              1. Ordinary app launch.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!--
+              2. Home app candidacy.
+
+              MAIN + HOME + DEFAULT is the combination the platform requires for
+              an activity to appear in the "Home app" picker. On Android 10+ the
+              user is sent through RoleManager.createRequestRoleIntent(), which
+              this app issues from AppCatalogChannel; the filter above is what
+              makes the role available in the first place.
+
+              `stateNotNeeded` tells the system it may destroy and recreate this
+              activity without warning, which is the behaviour a home screen
+              must tolerate. `singleTask` keeps one home instance in the task
+              stack, and a real taskAffinity (not "") is required for the back
+              gesture to leave the app rather than fall into the launcher.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
+            <!--
+              3. "Open with PaperOS" for PDF and plain text documents chosen
+                 from any other app, including the system Downloads app.
+            -->
+            <intent-filter android:label="@string/open_with_paperos">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="application/pdf" />
+                <data android:scheme="content" android:mimeType="text/plain" />
+                <data android:scheme="file" android:mimeType="application/pdf" />
+                <data android:scheme="file" android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+
+    <!--
+      Android 11+ (API 30) package visibility.
+
+      Without these entries `queryIntentActivities(MAIN/LAUNCHER)` returns
+      an empty list and the app drawer would be permanently empty. The
+      PROCESS_TEXT entry is required by the Flutter text plugin.
+
+      `<queries>` is a child of `<manifest>`, not of `<application>`.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/pdf" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT" />
+            <data android:mimeType="text/plain" />
+        </intent>
+    </queries>
+</manifest>

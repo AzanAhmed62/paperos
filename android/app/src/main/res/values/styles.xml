@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      The window behind the Flutter UI. PaperOS draws its own paper surface, so
+      this exists only to avoid a white flash before the first frame.
+
+      `windowBackground` is the paper colour rather than ?android:colorBackground
+      so that the launch frame matches the app in the light and dark styles
+      alike.
+    -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+    </style>
+
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@color/paper_canvas</item>
+    </style>
+</resources>

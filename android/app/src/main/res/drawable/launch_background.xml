@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PaperOS launch window: a flat sheet of paper, no logo, no colour. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/paper_canvas" />
+</layer-list>

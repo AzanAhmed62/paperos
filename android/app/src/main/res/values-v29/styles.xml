@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Android 10+ "force dark" would recolour PaperOS' carefully chosen inks and
+      rules. PaperOS implements its own Ink theme, so the platform heuristic is
+      switched off.
+    -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:forceDarkAllowed">false</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@color/paper_canvas</item>
+        <item name="android:forceDarkAllowed">false</item>
+    </style>
+</resources>

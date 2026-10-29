@@ -1,0 +1,284 @@
+import 'package:flutter/foundation.dart';
+
+import '../../../theme/paper_palette.dart';
+
+/// Which block of Paper Home is visible.
+///
+/// This is a real preference: the corresponding widget is not built at all
+/// when its section is hidden, which is both the promised behaviour and the
+/// cheaper one.
+enum HomeSection {
+  continueReading('continue', 'Continue reading'),
+  today('today', 'Today'),
+  recent('recent', 'Recent documents'),
+  search('search', 'Search');
+
+  const HomeSection(this.id, this.label);
+
+  final String id;
+  final String label;
+}
+
+/// How page turns are triggered in the reader.
+enum PageTurnMode {
+  /// Tap the left/right third of the page. The default: no chrome, no gesture
+  /// learning, works on e-ink where a swipe is a full-screen refresh.
+  tap('tap', 'Tap zones'),
+
+  /// Swipe horizontally, like a scroll.
+  swipe('swipe', 'Swipe'),
+
+  /// Both.
+  both('both', 'Tap and swipe');
+
+  const PageTurnMode(this.id, this.label);
+
+  final String id;
+  final String label;
+
+  static PageTurnMode fromId(String? id) {
+    for (final PageTurnMode mode in PageTurnMode.values) {
+      if (mode.id == id) return mode;
+    }
+    return PageTurnMode.tap;
+  }
+}
+
+/// Every user preference in PaperOS, as one immutable value.
+///
+/// Grouped into records so that a change to one area does not dirty the whole
+/// object, and so the Settings screen can be written declaratively.
+@immutable
+class AppearanceSettings {
+  const AppearanceSettings({
+    this.style = PaperStyle.white,
+    this.textScale = 1,
+    this.serifReading = true,
+  });
+
+  final PaperStyle style;
+
+  /// Multiplier on the whole type scale: 0.9, 1.0, 1.1, 1.25.
+  final double textScale;
+  final bool serifReading;
+
+  AppearanceSettings copyWith({
+    PaperStyle? style,
+    double? textScale,
+    bool? serifReading,
+  }) {
+    return AppearanceSettings(
+      style: style ?? this.style,
+      textScale: textScale ?? this.textScale,
+      serifReading: serifReading ?? this.serifReading,
+    );
+  }
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'style': style.id,
+    'textScale': textScale,
+    'serifReading': serifReading,
+  };
+
+  static AppearanceSettings fromJson(Map<String, Object?> json) {
+    return AppearanceSettings(
+      style: PaperStyle.fromId(json['style'] as String?),
+      textScale: (json['textScale'] as num?)?.toDouble() ?? 1,
+      serifReading: (json['serifReading'] as bool?) ?? true,
+    );
+  }
+}
+
+@immutable
+class ReaderSettings {
+  const ReaderSettings({
+    this.fontSize = 1,
+    this.lineHeight = 1.62,
+    this.margin = 24,
+    this.turnMode = PageTurnMode.tap,
+    this.showPageNumbers = true,
+    this.keepScreenOn = false,
+  });
+
+  /// Multiplier applied to the reader body size: 0.85 .. 1.6.
+  final double fontSize;
+  final double lineHeight;
+
+  /// Horizontal page margin in logical pixels.
+  final double margin;
+  final PageTurnMode turnMode;
+  final bool showPageNumbers;
+  final bool keepScreenOn;
+
+  ReaderSettings copyWith({
+    double? fontSize,
+    double? lineHeight,
+    double? margin,
+    PageTurnMode? turnMode,
+    bool? showPageNumbers,
+    bool? keepScreenOn,
+  }) {
+    return ReaderSettings(
+      fontSize: fontSize ?? this.fontSize,
+      lineHeight: lineHeight ?? this.lineHeight,
+      margin: margin ?? this.margin,
+      turnMode: turnMode ?? this.turnMode,
+      showPageNumbers: showPageNumbers ?? this.showPageNumbers,
+      keepScreenOn: keepScreenOn ?? this.keepScreenOn,
+    );
+  }
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'fontSize': fontSize,
+    'lineHeight': lineHeight,
+    'margin': margin,
+    'turnMode': turnMode.id,
+    'showPageNumbers': showPageNumbers,
+    'keepScreenOn': keepScreenOn,
+  };
+
+  static ReaderSettings fromJson(Map<String, Object?> json) {
+    return ReaderSettings(
+      fontSize: (json['fontSize'] as num?)?.toDouble() ?? 1,
+      lineHeight: (json['lineHeight'] as num?)?.toDouble() ?? 1.62,
+      margin: (json['margin'] as num?)?.toDouble() ?? 24,
+      turnMode: PageTurnMode.fromId(json['turnMode'] as String?),
+      showPageNumbers: (json['showPageNumbers'] as bool?) ?? true,
+      keepScreenOn: (json['keepScreenOn'] as bool?) ?? false,
+    );
+  }
+}
+
+@immutable
+class LauncherSettings {
+  const LauncherSettings({
+    this.showIcons = true,
+    this.showSystemApps = false,
+    this.favoritePackages = const <String>[],
+  });
+
+  /// Show the real launcher icon next to each app in the app drawer.
+  final bool showIcons;
+
+  /// Include preinstalled system apps in the drawer.
+  final bool showSystemApps;
+
+  /// Ordered package names pinned to the top of the drawer.
+  final List<String> favoritePackages;
+
+  LauncherSettings copyWith({
+    bool? showIcons,
+    bool? showSystemApps,
+    List<String>? favoritePackages,
+  }) {
+    return LauncherSettings(
+      showIcons: showIcons ?? this.showIcons,
+      showSystemApps: showSystemApps ?? this.showSystemApps,
+      favoritePackages: favoritePackages ?? this.favoritePackages,
+    );
+  }
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'showIcons': showIcons,
+    'showSystemApps': showSystemApps,
+    'favoritePackages': favoritePackages,
+  };
+
+  static LauncherSettings fromJson(Map<String, Object?> json) {
+    final Object? raw = json['favoritePackages'];
+    return LauncherSettings(
+      showIcons: (json['showIcons'] as bool?) ?? true,
+      showSystemApps: (json['showSystemApps'] as bool?) ?? false,
+      favoritePackages: raw is List
+          ? raw.whereType<String>().toList(growable: false)
+          : const <String>[],
+    );
+  }
+}
+
+@immutable
+class HomeSettings {
+  const HomeSettings({
+    this.hiddenSections = const <HomeSection>{},
+    this.showClock = true,
+  });
+
+  final Set<HomeSection> hiddenSections;
+  final bool showClock;
+
+  bool shows(HomeSection section) => !hiddenSections.contains(section);
+
+  HomeSettings copyWith({Set<HomeSection>? hiddenSections, bool? showClock}) {
+    return HomeSettings(
+      hiddenSections: hiddenSections ?? this.hiddenSections,
+      showClock: showClock ?? this.showClock,
+    );
+  }
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'hiddenSections': hiddenSections
+        .map((HomeSection s) => s.id)
+        .toList(growable: false),
+    'showClock': showClock,
+  };
+
+  static HomeSettings fromJson(Map<String, Object?> json) {
+    final Object? raw = json['hiddenSections'];
+    final Set<HomeSection> hidden = <HomeSection>{};
+    if (raw is List) {
+      for (final Object? value in raw) {
+        for (final HomeSection section in HomeSection.values) {
+          if (section.id == value) hidden.add(section);
+        }
+      }
+    }
+    return HomeSettings(
+      hiddenSections: hidden,
+      showClock: (json['showClock'] as bool?) ?? true,
+    );
+  }
+}
+
+/// Root settings value.
+@immutable
+class AppSettings {
+  const AppSettings({
+    this.appearance = const AppearanceSettings(),
+    this.reader = const ReaderSettings(),
+    this.launcher = const LauncherSettings(),
+    this.home = const HomeSettings(),
+    this.askOnExit = true,
+  });
+
+  final AppearanceSettings appearance;
+  final ReaderSettings reader;
+  final LauncherSettings launcher;
+  final HomeSettings home;
+
+  /// Confirm before leaving a modified note or document deletion. Every
+  /// destructive action in PaperOS asks; nothing deletes silently.
+  final bool askOnExit;
+
+  const AppSettings.defaults()
+    : appearance = const AppearanceSettings(),
+      reader = const ReaderSettings(),
+      launcher = const LauncherSettings(),
+      home = const HomeSettings(),
+      askOnExit = true;
+
+  AppSettings copyWith({
+    AppearanceSettings? appearance,
+    ReaderSettings? reader,
+    LauncherSettings? launcher,
+    HomeSettings? home,
+    bool? askOnExit,
+  }) {
+    return AppSettings(
+      appearance: appearance ?? this.appearance,
+      reader: reader ?? this.reader,
+      launcher: launcher ?? this.launcher,
+      home: home ?? this.home,
+      askOnExit: askOnExit ?? this.askOnExit,
+    );
+  }
+}

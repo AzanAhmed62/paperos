@@ -1,0 +1,60 @@
+name: paperos
+description: "PaperOS — a quiet, reading-first Android environment built on digital-paper principles."
+publish_to: 'none'
+
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management. No code generation: plain Notifier/AsyncNotifier providers.
+  flutter_riverpod: 3.3.2
+
+  # Declarative navigation with a stateful shell for the five primary surfaces.
+  go_router: 17.3.0
+
+  # Structured local persistence for documents, progress, bookmarks, notes, tasks.
+  # Pinned to 2.4.2: 2.4.4 requires Dart >= 3.12 / Flutter >= 3.44.
+  sqflite: 2.4.2
+
+  # Small key/value app preferences (settings). Separate from the content database
+  # so that reading the theme never needs the content DB to be opened.
+  shared_preferences: 2.5.5
+
+  # Android Storage Access Framework document/folder import (no broad storage
+  # permission required on Android 11+).
+  file_picker: 11.0.2
+
+  path: 1.9.1
+  path_provider: 2.1.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+  # Runs the real SQLite engine inside `flutter test` so repository tests
+  # exercise actual SQL instead of a hand written fake.
+  sqflite_common_ffi: 2.4.0+2
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/licenses/
+
+  fonts:
+    - family: PaperSerif
+      fonts:
+        - asset: assets/fonts/NotoSerif-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/NotoSerif-Italic.ttf
+          weight: 400
+          style: italic
+        - asset: assets/fonts/NotoSerif-Bold.ttf
+          weight: 700
