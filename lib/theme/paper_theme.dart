@@ -18,11 +18,7 @@ abstract final class PaperTheme {
     final PaperPalette palette = PaperPalette.of(style);
 
     final TextTheme textTheme = TextTheme(
-      bodyLarge: TextStyle(
-        fontFamily: null,
-        fontSize: 15,
-        color: palette.ink,
-      ),
+      bodyLarge: TextStyle(fontFamily: null, fontSize: 15, color: palette.ink),
       bodyMedium: TextStyle(fontSize: 13, color: palette.inkMuted),
       labelSmall: TextStyle(fontSize: 11.5, color: palette.inkFaint),
     );
@@ -231,7 +227,8 @@ class _PaperPageTransitionsBuilder extends PageTransitionsBuilder {
     Animation<double> secondaryAnimation,
     Widget child,
   ) {
-    final bool reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    final bool reduceMotion =
+        MediaQuery.maybeDisableAnimationsOf(context) ?? false;
     if (reduceMotion) return child;
 
     final Animation<double> eased = CurvedAnimation(

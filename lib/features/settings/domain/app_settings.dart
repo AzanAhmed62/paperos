@@ -19,6 +19,24 @@ enum HomeSection {
   final String label;
 }
 
+/// How the reader lays out a reflowable document.
+enum ReaderFlow {
+  paged('paged', 'Paged'),
+  scroll('scroll', 'Scrolling');
+
+  const ReaderFlow(this.id, this.label);
+
+  final String id;
+  final String label;
+
+  static ReaderFlow fromId(String? id) {
+    for (final ReaderFlow flow in ReaderFlow.values) {
+      if (flow.id == id) return flow;
+    }
+    return ReaderFlow.paged;
+  }
+}
+
 /// How page turns are triggered in the reader.
 enum PageTurnMode {
   /// Tap the left/right third of the page. The default: no chrome, no gesture
@@ -96,6 +114,7 @@ class ReaderSettings {
     this.lineHeight = 1.62,
     this.margin = 24,
     this.turnMode = PageTurnMode.tap,
+    this.flow = ReaderFlow.paged,
     this.showPageNumbers = true,
     this.keepScreenOn = false,
   });
@@ -107,6 +126,10 @@ class ReaderSettings {
   /// Horizontal page margin in logical pixels.
   final double margin;
   final PageTurnMode turnMode;
+
+  /// Reflowable formats can be read page-by-page or as one continuous scroll.
+  /// PDFs stay paged because their native renderer is page-oriented.
+  final ReaderFlow flow;
   final bool showPageNumbers;
   final bool keepScreenOn;
 
@@ -115,6 +138,7 @@ class ReaderSettings {
     double? lineHeight,
     double? margin,
     PageTurnMode? turnMode,
+    ReaderFlow? flow,
     bool? showPageNumbers,
     bool? keepScreenOn,
   }) {
@@ -123,6 +147,7 @@ class ReaderSettings {
       lineHeight: lineHeight ?? this.lineHeight,
       margin: margin ?? this.margin,
       turnMode: turnMode ?? this.turnMode,
+      flow: flow ?? this.flow,
       showPageNumbers: showPageNumbers ?? this.showPageNumbers,
       keepScreenOn: keepScreenOn ?? this.keepScreenOn,
     );
@@ -133,6 +158,7 @@ class ReaderSettings {
     'lineHeight': lineHeight,
     'margin': margin,
     'turnMode': turnMode.id,
+    'flow': flow.id,
     'showPageNumbers': showPageNumbers,
     'keepScreenOn': keepScreenOn,
   };
@@ -143,6 +169,7 @@ class ReaderSettings {
       lineHeight: (json['lineHeight'] as num?)?.toDouble() ?? 1.62,
       margin: (json['margin'] as num?)?.toDouble() ?? 24,
       turnMode: PageTurnMode.fromId(json['turnMode'] as String?),
+      flow: ReaderFlow.fromId(json['flow'] as String?),
       showPageNumbers: (json['showPageNumbers'] as bool?) ?? true,
       keepScreenOn: (json['keepScreenOn'] as bool?) ?? false,
     );

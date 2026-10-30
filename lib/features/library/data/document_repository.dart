@@ -48,6 +48,7 @@ class DocumentRepository {
   /// free-text [query] over title and file name.
   Future<List<Document>> list({
     LibraryScope scope = LibraryScope.all,
+    LibrarySort sort = LibrarySort.recentlyOpened,
     String query = '',
     int? limit,
   }) {
@@ -56,15 +57,37 @@ class DocumentRepository {
       switch (scope) {
         case LibraryScope.all:
           break;
+        case LibraryScope.epub:
+          clauses.add("format = 'epub'");
+        case LibraryScope.pdf:
+          clauses.add("format = 'pdf'");
+        case LibraryScope.text:
+          clauses.add("format = 'txt'");
         case LibraryScope.recent:
           clauses.add('last_opened_at IS NOT NULL');
         case LibraryScope.favorites:
           clauses.add('is_favorite = 1');
+        case LibraryScope.unread:
+          clauses.add('last_page IS NULL AND last_fraction IS NULL');
+        case LibraryScope.inProgress:
+          clauses.add(
+            '((last_page IS NOT NULL OR last_fraction IS NOT NULL) '
+            'AND COALESCE(last_fraction, 0) < 0.995 '
+            'AND COALESCE(last_page, 1) < COALESCE(page_count, 1))',
+          );
+        case LibraryScope.completed:
+          clauses.add(
+            '(COALESCE(last_fraction, 0) >= 0.995 '
+            'OR (page_count > 0 AND last_page >= page_count))',
+          );
       }
 
       final String needle = query.trim();
       if (needle.isNotEmpty) {
-        clauses.add('(LOWER(title) LIKE ? OR LOWER(source_name) LIKE ?)');
+        clauses.add(
+          '(LOWER(title) LIKE ? OR LOWER(source_name) LIKE ? '
+          'OR LOWER(COALESCE(author, \'\')) LIKE ?)',
+        );
       }
 
       final String where = clauses.isEmpty
@@ -76,15 +99,25 @@ class DocumentRepository {
         final String pattern = '%${needle.toLowerCase()}%';
         args
           ..add(pattern)
+          ..add(pattern)
           ..add(pattern);
       }
       if (limit != null) {
         args.add(limit);
       }
 
+      final String order = switch (sort) {
+        LibrarySort.recentlyOpened =>
+          '(last_opened_at IS NULL), last_opened_at DESC, added_at DESC',
+        LibrarySort.recentlyAdded => 'added_at DESC',
+        LibrarySort.title => 'LOWER(title) ASC, added_at DESC',
+        LibrarySort.author =>
+          '(author IS NULL OR author = \'\'), LOWER(author) ASC, '
+              'LOWER(title) ASC',
+      };
+
       final List<Map<String, Object?>> rows = await (await _db).rawQuery(
-        'SELECT * FROM documents $where '
-        'ORDER BY (last_opened_at IS NULL), last_opened_at DESC, added_at DESC '
+        'SELECT * FROM documents $where ORDER BY $order '
         '${limit == null ? '' : 'LIMIT ?'}',
         args,
       );
@@ -137,6 +170,18 @@ class DocumentRepository {
     });
   }
 
+  Future<Document?> findByFingerprint(String fingerprint) {
+    return _guard(() async {
+      final List<Map<String, Object?>> rows = await (await _db).query(
+        'documents',
+        where: 'fingerprint = ?',
+        whereArgs: <Object?>[fingerprint],
+        limit: 1,
+      );
+      return rows.isEmpty ? null : _fromRow(rows.first);
+    });
+  }
+
   Future<Document> insert(Document document) {
     return _guard(() async {
       await (await _db).insert(
@@ -162,15 +207,96 @@ class DocumentRepository {
           'is_favorite': document.isFavorite ? 1 : 0,
           'last_page': document.progress.position?.page,
           'last_fraction': document.progress.position?.fraction,
+          'last_locator': document.progress.position?.locator,
           'max_page': document.progress.maxPage,
           'last_opened_at': _millis(document.lastOpenedAt),
           'opened_seconds': document.openedSeconds,
+          'author': document.author,
+          'publisher': document.publisher,
+          'language': document.language,
+          'identifier': document.identifier,
+          'description': document.description,
+          'cover_path': document.coverPath,
+          'fingerprint': document.fingerprint,
         },
         where: 'id = ?',
         whereArgs: <Object?>[document.id],
       );
       _notify();
     });
+  }
+
+  /// Reattaches a new private copy to an existing row.
+  ///
+  /// Used when a source is imported again after the app-private file vanished.
+  /// The row id does not change, so bookmarks, annotations, progress and the
+  /// user's title survive. Only file-backed fields are replaced.
+  Future<Document> relink(
+    Document existing, {
+    required String localPath,
+    required String? sourceUri,
+    required String sourceName,
+    required int byteSize,
+    required int? pageCount,
+    required DocumentStatus status,
+    required String fingerprint,
+    String? title,
+    String? author,
+    String? publisher,
+    String? language,
+    String? identifier,
+    String? description,
+    String? coverPath,
+  }) {
+    return _guard(() async {
+      final bool titleWasFallback =
+          existing.title.trim() == _fileStem(existing.sourceName);
+      final Document updated = existing.copyWith(
+        title: titleWasFallback ? (title ?? existing.title) : existing.title,
+        localPath: localPath,
+        sourceUri: sourceUri,
+        sourceName: sourceName,
+        byteSize: byteSize,
+        pageCount: pageCount,
+        status: status,
+        author: author,
+        publisher: publisher,
+        language: language,
+        identifier: identifier,
+        description: description,
+        coverPath: coverPath,
+        fingerprint: fingerprint,
+      );
+      await (await _db).update(
+        'documents',
+        <String, Object?>{
+          'local_path': localPath,
+          'source_uri': sourceUri,
+          'source_name': sourceName,
+          'title': updated.title,
+          'byte_size': byteSize,
+          'page_count': pageCount,
+          'status': status.id,
+          'author': author,
+          'publisher': publisher,
+          'language': language,
+          'identifier': identifier,
+          'description': description,
+          'cover_path': coverPath,
+          'fingerprint': fingerprint,
+        },
+        where: 'id = ?',
+        whereArgs: <Object?>[existing.id],
+      );
+      _notify();
+      return updated;
+    });
+  }
+
+  static String _fileStem(String name) {
+    final String leaf = name.replaceAll('\\', '/').split('/').last;
+    final int dot = leaf.lastIndexOf('.');
+    return dot > 0 ? leaf.substring(0, dot) : leaf;
   }
 
   Future<void> setFavorite(String id, bool favorite) async {
@@ -201,6 +327,7 @@ class DocumentRepository {
 UPDATE documents
    SET last_page = ?,
        last_fraction = ?,
+       last_locator = ?,
        page_count = COALESCE(?, page_count),
        max_page = CASE
                      WHEN ? IS NULL THEN max_page
@@ -214,6 +341,7 @@ UPDATE documents
         <Object?>[
           position.page,
           position.fraction,
+          position.locator,
           pageCount > 0 ? pageCount : null,
           maxPageSeen,
           maxPageSeen,
@@ -274,17 +402,27 @@ UPDATE documents
     'is_favorite': d.isFavorite ? 1 : 0,
     'last_page': d.progress.position?.page,
     'last_fraction': d.progress.position?.fraction,
+    'last_locator': d.progress.position?.locator,
     'max_page': d.progress.maxPage,
     'added_at': d.addedAt.millisecondsSinceEpoch,
     'last_opened_at': _millis(d.lastOpenedAt),
     'opened_seconds': d.openedSeconds,
+    'author': d.author,
+    'publisher': d.publisher,
+    'language': d.language,
+    'identifier': d.identifier,
+    'description': d.description,
+    'cover_path': d.coverPath,
+    'fingerprint': d.fingerprint,
   };
 
   static Document _fromRow(Map<String, Object?> row) {
     final int? page = row['last_page'] as int?;
     final double? fraction = (row['last_fraction'] as num?)?.toDouble();
-    final ReadingPosition? position = (page != null || fraction != null)
-        ? ReadingPosition(page: page, fraction: fraction)
+    final String? locator = row['last_locator'] as String?;
+    final ReadingPosition? position =
+        (page != null || fraction != null || locator != null)
+        ? ReadingPosition(page: page, fraction: fraction, locator: locator)
         : null;
 
     return Document(
@@ -310,6 +448,13 @@ UPDATE documents
           ? null
           : DateTime.fromMillisecondsSinceEpoch(row['last_opened_at']! as int),
       openedSeconds: (row['opened_seconds'] as int?) ?? 0,
+      author: row['author'] as String?,
+      publisher: row['publisher'] as String?,
+      language: row['language'] as String?,
+      identifier: row['identifier'] as String?,
+      description: row['description'] as String?,
+      coverPath: row['cover_path'] as String?,
+      fingerprint: row['fingerprint'] as String?,
     );
   }
 }

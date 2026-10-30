@@ -12,15 +12,27 @@ import '../../library/data/library_service.dart';
 import '../../library/domain/document.dart';
 import '../../library/domain/library_models.dart';
 
-/// A library list request: which slice, and which search text.
+/// A library list request: which slice, how to order it, and search text.
 class LibraryQuery {
-  const LibraryQuery({this.scope = LibraryScope.all, this.search = ''});
+  const LibraryQuery({
+    this.scope = LibraryScope.all,
+    this.search = '',
+    this.sort = LibrarySort.recentlyOpened,
+  });
 
   final LibraryScope scope;
   final String search;
+  final LibrarySort sort;
 
-  LibraryQuery copyWith({LibraryScope? scope, String? search}) =>
-      LibraryQuery(scope: scope ?? this.scope, search: search ?? this.search);
+  LibraryQuery copyWith({
+    LibraryScope? scope,
+    String? search,
+    LibrarySort? sort,
+  }) => LibraryQuery(
+    scope: scope ?? this.scope,
+    search: search ?? this.search,
+    sort: sort ?? this.sort,
+  );
 }
 
 class LibraryQueryController extends Notifier<LibraryQuery> {
@@ -30,6 +42,8 @@ class LibraryQueryController extends Notifier<LibraryQuery> {
   void setScope(LibraryScope scope) => state = state.copyWith(scope: scope);
 
   void setSearch(String search) => state = state.copyWith(search: search);
+
+  void setSort(LibrarySort sort) => state = state.copyWith(sort: sort);
 }
 
 final libraryQueryProvider =
@@ -62,7 +76,7 @@ final libraryEntriesProvider = FutureProvider<List<LibraryEntry>>((
   final DateTime now = DateTime.now();
   final List<Document> documents = await ref
       .watch(documentRepositoryProvider)
-      .list(scope: query.scope, query: query.search);
+      .list(scope: query.scope, sort: query.sort, query: query.search);
   return documents
       .map((Document document) => LibraryService.present(document, now))
       .toList(growable: false);

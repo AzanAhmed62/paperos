@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 
 import 'paper_palette.dart';
@@ -12,10 +11,7 @@ const String kPaperSerifFamily = 'PaperSerif';
 /// Typography options that come from user settings.
 @immutable
 class PaperTypeOptions {
-  const PaperTypeOptions({
-    this.scale = 1,
-    this.serifReading = true,
-  });
+  const PaperTypeOptions({this.scale = 1, this.serifReading = true});
 
   /// Multiplier applied to every size. Exposed in Settings as "Text size".
   final double scale;
@@ -183,7 +179,12 @@ class PaperTypography extends ThemeExtension<PaperTypography> {
         height: 1.1,
         spacing: 0.9,
       ),
-      'action': ui(size: 14, weight: FontWeight.w600, height: 1.2, spacing: 0.4),
+      'action': ui(
+        size: 14,
+        weight: FontWeight.w600,
+        height: 1.2,
+        spacing: 0.4,
+      ),
       'input': ui(size: 16, height: 1.4),
       'fieldLabel': ui(size: 12.5, weight: FontWeight.w600, color: muted),
       'readingBody': ui(

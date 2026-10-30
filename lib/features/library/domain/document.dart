@@ -42,6 +42,7 @@ enum DocumentFormat {
   static List<String> get readableExtensions => <String>[
     ...DocumentFormat.pdf.extensions,
     ...DocumentFormat.text.extensions,
+    ...DocumentFormat.epub.extensions,
   ];
 
   /// Whether the current build has a reader for [format].
@@ -50,7 +51,14 @@ enum DocumentFormat {
   /// comparisons: adding a reader means adding one `true` here, and no screen
   /// has to be edited.
   static bool isReadable(DocumentFormat format) =>
-      format == DocumentFormat.pdf || format == DocumentFormat.text;
+      format == DocumentFormat.pdf ||
+      format == DocumentFormat.text ||
+      format == DocumentFormat.epub;
+
+  /// Formats that are reflowable text. Their page count depends on the current
+  /// typography and viewport, so they store a locator as well as a page.
+  static bool isReflowable(DocumentFormat format) =>
+      format == DocumentFormat.text || format == DocumentFormat.epub;
 
   static DocumentFormat? tryParse(String id) {
     for (final DocumentFormat format in DocumentFormat.values) {
@@ -107,11 +115,11 @@ enum DocumentStatus {
 /// when [page] is null.
 @immutable
 class ReadingPosition {
-  const ReadingPosition({this.page, this.fraction});
+  const ReadingPosition({this.page, this.fraction, this.locator});
 
-  const ReadingPosition.atPage(int this.page) : fraction = null;
+  const ReadingPosition.atPage(int this.page, {this.fraction, this.locator});
 
-  const ReadingPosition.atFraction(this.fraction) : page = null;
+  const ReadingPosition.atFraction(this.fraction, {this.locator}) : page = null;
 
   static const ReadingPosition start = ReadingPosition.atPage(1);
 
@@ -120,6 +128,11 @@ class ReadingPosition {
 
   /// 0..1 through the document, or null when only a page is known.
   final double? fraction;
+
+  /// Optional format-native anchor. For EPUB this is a chapter-relative
+  /// character locator, which survives re-pagination when a font size, margin
+  /// or screen orientation changes.
+  final String? locator;
 
   bool get isPaged => page != null;
 
@@ -141,15 +154,16 @@ class ReadingPosition {
   bool operator ==(Object other) =>
       other is ReadingPosition &&
       other.page == page &&
-      other.fraction == fraction;
+      other.fraction == fraction &&
+      other.locator == locator;
 
   @override
-  int get hashCode => Object.hash(page, fraction);
+  int get hashCode => Object.hash(page, fraction, locator);
 
   @override
   String toString() => page != null
-      ? 'ReadingPosition(page: $page)'
-      : 'ReadingPosition(fraction: $fraction)';
+      ? 'ReadingPosition(page: $page, locator: $locator)'
+      : 'ReadingPosition(fraction: $fraction, locator: $locator)';
 }
 
 /// Persistent reading state for one document.
@@ -171,8 +185,12 @@ class ReadingProgress {
 
   bool get isFinished {
     final ReadingPosition? current = position;
-    if (current == null || pageCount <= 0) return false;
-    return current.progressFor(pageCount) >= 0.995;
+    if (current == null) return false;
+    final double? exact = current.fraction;
+    if (current.page != null && pageCount > 0) {
+      return current.progressFor(pageCount) >= 0.995 || (exact ?? 0) >= 0.995;
+    }
+    return (exact ?? 0) >= 0.995;
   }
 
   /// 0..1. Zero when nothing is known, never null, never a guess.
@@ -205,6 +223,8 @@ class Bookmark {
     required this.fraction,
     this.label,
     this.excerpt,
+    this.locator,
+    this.chapterTitle,
     required this.createdAt,
   });
 
@@ -214,11 +234,25 @@ class Bookmark {
   final double fraction;
   final String? label;
   final String? excerpt;
+
+  /// Format-native anchor for reflowable books.
+  final String? locator;
+
+  /// Chapter heading captured when the bookmark was created, for a useful
+  /// label even before the book is reopened.
+  final String? chapterTitle;
   final DateTime createdAt;
 
   ReadingPosition get position => page >= 0
-      ? ReadingPosition(page: page, fraction: fraction >= 0 ? fraction : null)
-      : ReadingPosition.atFraction(fraction < 0 ? 0 : fraction);
+      ? ReadingPosition(
+          page: page,
+          fraction: fraction >= 0 ? fraction : null,
+          locator: locator,
+        )
+      : ReadingPosition.atFraction(
+          fraction < 0 ? 0 : fraction,
+          locator: locator,
+        );
 
   /// Whether [other] points at the same place as this bookmark.
   ///
@@ -226,6 +260,9 @@ class Bookmark {
   /// page number, and comparing the fraction as well would produce false
   /// negatives whenever the page-count estimate shifted between sessions.
   bool pointsAt(ReadingPosition other) {
+    if (locator != null && other.locator != null) {
+      return locator == other.locator;
+    }
     if (page >= 0 && other.page != null) return page == other.page;
     final double a = fraction < 0 ? 0 : fraction;
     final double b = other.fraction ?? 0;
@@ -233,17 +270,45 @@ class Bookmark {
   }
 
   /// The best available human label: an explicit label if the user set one,
-  /// otherwise the position within the document.
-  String get displayLabel =>
-      label?.trim().isNotEmpty == true ? label! : describe(0);
+  /// then the chapter, then the position within the document.
+  String get displayLabel {
+    final String? explicit = label?.trim();
+    if (explicit != null && explicit.isNotEmpty) return explicit;
+    final String? chapter = chapterTitle?.trim();
+    if (chapter != null && chapter.isNotEmpty) return chapter;
+    return describe(0);
+  }
 
-  /// "Page 42" or "38%" depending on the format.
+  /// "Page 42", "Chapter 3 · 38%" or "38%" depending on the format.
   String describe(int pageCount) {
+    final String? chapter = chapterTitle?.trim();
+    final int percent = (fraction.clamp(0.0, 1.0) * 100).round();
+    if (chapter != null && chapter.isNotEmpty) {
+      return '$chapter · $percent%';
+    }
     if (page >= 0) {
       return pageCount > 0 ? 'Page $page of $pageCount' : 'Page $page';
     }
-    final int percent = (fraction.clamp(0.0, 1.0) * 100).round();
     return '$percent%';
+  }
+
+  Bookmark copyWith({
+    String? label,
+    String? excerpt,
+    String? locator,
+    String? chapterTitle,
+  }) {
+    return Bookmark(
+      id: id,
+      documentId: documentId,
+      page: page,
+      fraction: fraction,
+      label: label ?? this.label,
+      excerpt: excerpt ?? this.excerpt,
+      locator: locator ?? this.locator,
+      chapterTitle: chapterTitle ?? this.chapterTitle,
+      createdAt: createdAt,
+    );
   }
 
   @override
@@ -254,11 +319,21 @@ class Bookmark {
       other.page == page &&
       other.fraction == fraction &&
       other.label == label &&
-      other.excerpt == excerpt;
+      other.excerpt == excerpt &&
+      other.locator == locator &&
+      other.chapterTitle == chapterTitle;
 
   @override
-  int get hashCode =>
-      Object.hash(id, documentId, page, fraction, label, excerpt);
+  int get hashCode => Object.hash(
+    id,
+    documentId,
+    page,
+    fraction,
+    label,
+    excerpt,
+    locator,
+    chapterTitle,
+  );
 }
 
 /// A file in the PaperOS library.
@@ -279,6 +354,13 @@ class Document {
     required this.addedAt,
     required this.lastOpenedAt,
     required this.openedSeconds,
+    this.author,
+    this.publisher,
+    this.language,
+    this.identifier,
+    this.description,
+    this.coverPath,
+    this.fingerprint,
   });
 
   final String id;
@@ -308,30 +390,72 @@ class Document {
   /// Cumulative time the reader has been open for this document.
   final int openedSeconds;
 
+  /// Publication metadata, when the format provides it. All optional: PaperOS
+  /// never invents an author or publisher for a plain file.
+  final String? author;
+  final String? publisher;
+  final String? language;
+  final String? identifier;
+  final String? description;
+
+  /// App-private extracted cover, if one was safely available.
+  final String? coverPath;
+
+  /// Content fingerprint used to recognise the same file imported through a
+  /// different picker or after its original row lost the file.
+  final String? fingerprint;
+
   bool get isReadable => status == DocumentStatus.ready;
 
   bool get wasOpened => lastOpenedAt != null;
 
+  bool get isUnread => progress.position == null;
+
+  bool get isFinished => progress.isFinished;
+
+  bool get isInProgress => progress.position != null && !progress.isFinished;
+
   /// 0..1 reading progress, for progress bars and "continue reading".
-  double get progressFraction => progress.fraction;
+  ///
+  /// Reflowable books prefer the exact fraction saved by the reader. Their
+  /// page count changes with typography, so a page/page-count ratio alone can
+  /// jump after a font change; the fraction is the honest value.
+  double get progressFraction {
+    final double? exact = progress.position?.fraction;
+    if (DocumentFormat.isReflowable(format) && exact != null) {
+      return exact.clamp(0.0, 1.0);
+    }
+    return progress.fraction;
+  }
 
   Document copyWith({
     String? title,
+    String? localPath,
+    String? sourceUri,
+    String? sourceName,
+    int? byteSize,
     int? pageCount,
     DocumentStatus? status,
     bool? isFavorite,
     ReadingProgress? progress,
     DateTime? lastOpenedAt,
     int? openedSeconds,
+    String? author,
+    String? publisher,
+    String? language,
+    String? identifier,
+    String? description,
+    String? coverPath,
+    String? fingerprint,
   }) {
     return Document(
       id: id,
-      localPath: localPath,
-      sourceUri: sourceUri,
-      sourceName: sourceName,
+      localPath: localPath ?? this.localPath,
+      sourceUri: sourceUri ?? this.sourceUri,
+      sourceName: sourceName ?? this.sourceName,
       title: title ?? this.title,
       format: format,
-      byteSize: byteSize,
+      byteSize: byteSize ?? this.byteSize,
       pageCount: pageCount ?? this.pageCount,
       status: status ?? this.status,
       isFavorite: isFavorite ?? this.isFavorite,
@@ -339,6 +463,13 @@ class Document {
       addedAt: addedAt,
       lastOpenedAt: lastOpenedAt ?? this.lastOpenedAt,
       openedSeconds: openedSeconds ?? this.openedSeconds,
+      author: author ?? this.author,
+      publisher: publisher ?? this.publisher,
+      language: language ?? this.language,
+      identifier: identifier ?? this.identifier,
+      description: description ?? this.description,
+      coverPath: coverPath ?? this.coverPath,
+      fingerprint: fingerprint ?? this.fingerprint,
     );
   }
 

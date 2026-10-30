@@ -49,6 +49,9 @@ class SettingsController extends Notifier<AppSettings> {
   Future<void> setTurnMode(PageTurnMode mode) =>
       _write(state.copyWith(reader: state.reader.copyWith(turnMode: mode)));
 
+  Future<void> setReaderFlow(ReaderFlow flow) =>
+      _write(state.copyWith(reader: state.reader.copyWith(flow: flow)));
+
   Future<void> setShowPageNumbers(bool show) => _write(
     state.copyWith(reader: state.reader.copyWith(showPageNumbers: show)),
   );

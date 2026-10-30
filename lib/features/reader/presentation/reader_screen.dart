@@ -12,12 +12,15 @@ import '../../../shared/widgets/paper_widgets.dart';
 import '../../../theme/paper_palette.dart';
 import '../../../theme/paper_space.dart';
 import '../../../theme/paper_typography.dart';
+import '../../annotations/domain/annotation.dart';
 import '../../library/domain/document.dart';
 import '../../settings/application/settings_controller.dart';
 import '../../settings/domain/app_settings.dart';
 import '../application/reader_controller.dart';
 import '../domain/reader_backend.dart';
 import '../domain/text_paginator.dart';
+import '../epub/epub_book.dart';
+import '../epub/epub_reader_backend.dart';
 
 /// Height of the reader's top and bottom bars.
 ///
@@ -164,21 +167,34 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               onSwipe: _onSwipe,
             ),
           ),
-          _ReaderTopBar(
-            state: state,
-            visible: state.chromeVisible,
-            showPageNumbers: showNumbers,
-            onBack: () => Navigator.of(context).maybePop(),
-            onBookmarks: () => _showBookmarks(state),
-            onSettings: _showReadingSettings,
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: _ReaderTopBar(
+              state: state,
+              visible: state.chromeVisible,
+              showPageNumbers: showNumbers,
+              onBack: () => Navigator.of(context).maybePop(),
+              onToc: _showToc,
+              onSearch: _showSearch,
+              onAnnotations: _showAnnotations,
+              onBookmarks: () => _showBookmarks(state),
+              onSettings: _showReadingSettings,
+            ),
           ),
-          _ReaderBottomBar(
-            state: state,
-            visible: state.chromeVisible,
-            onPrevious: () => _turn(previous: true),
-            onNext: () => _turn(previous: false),
-            onGoToPage: () => _promptForPage(state),
-            onToggleBookmark: () => _toggleBookmark(state),
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: _ReaderBottomBar(
+              state: state,
+              visible: state.chromeVisible,
+              onPrevious: () => _turn(previous: true),
+              onNext: () => _turn(previous: false),
+              onGoToPage: () => _promptForPage(state),
+              onToggleBookmark: () => _toggleBookmark(state),
+            ),
           ),
         ],
       ),
@@ -252,6 +268,46 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       builder: (BuildContext sheetContext) {
         return _BookmarksSheet(state: state);
       },
+    );
+  }
+
+  Future<void> _showToc() async {
+    final ReaderSession session = _session;
+    if (session.toc.isEmpty) {
+      PaperToast.show(context, 'This EPUB has no table of contents.');
+      return;
+    }
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: paperPalette(context).canvas,
+      barrierColor: paperPalette(context).ink.withValues(alpha: 0.32),
+      shape: const RoundedRectangleBorder(),
+      builder: (BuildContext sheetContext) =>
+          _TocSheet(entries: session.toc, session: session),
+    );
+  }
+
+  Future<void> _showSearch() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: paperPalette(context).canvas,
+      barrierColor: paperPalette(context).ink.withValues(alpha: 0.32),
+      shape: const RoundedRectangleBorder(),
+      builder: (BuildContext sheetContext) => _SearchSheet(session: _session),
+    );
+  }
+
+  Future<void> _showAnnotations() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: paperPalette(context).canvas,
+      barrierColor: paperPalette(context).ink.withValues(alpha: 0.32),
+      shape: const RoundedRectangleBorder(),
+      builder: (BuildContext sheetContext) =>
+          _AnnotationsSheet(documentId: widget.documentId),
     );
   }
 
@@ -349,9 +405,15 @@ class _PageSurfaceState extends ConsumerState<_PageSurface> {
   Widget build(BuildContext context) {
     final ReaderState state = widget.state;
     final PageTurnMode mode = widget.settings.turnMode;
+    final bool scrolling =
+        state.backend is EpubReaderBackend &&
+        widget.settings.flow == ReaderFlow.scroll;
     final EdgeInsets chromeInset = EdgeInsets.only(
       top: kReaderTopBarHeight + MediaQuery.paddingOf(context).top,
       bottom: kReaderBottomBarHeight + MediaQuery.paddingOf(context).bottom,
+    );
+    final ReaderSession session = ref.read(
+      readerProvider(state.document.id).notifier,
     );
 
     final Widget content = switch (state.backend) {
@@ -365,6 +427,20 @@ class _PageSurfaceState extends ConsumerState<_PageSurface> {
         settings: widget.settings,
         serifReading: ref.watch(settingsProvider).appearance.serifReading,
         inset: chromeInset,
+      ),
+      final EpubReaderBackend backend when scrolling => _EpubScrollPage(
+        state: state,
+        backend: backend,
+        settings: widget.settings,
+        serifReading: ref.watch(settingsProvider).appearance.serifReading,
+        session: session,
+      ),
+      final EpubReaderBackend backend => _EpubPage(
+        state: state,
+        backend: backend,
+        settings: widget.settings,
+        serifReading: ref.watch(settingsProvider).appearance.serifReading,
+        session: session,
       ),
       final ReaderBackend _ => const Center(child: PaperLoading()),
     };
@@ -391,7 +467,7 @@ class _PageSurfaceState extends ConsumerState<_PageSurface> {
         if (mode != PageTurnMode.swipe) {
           page = _TapZones(onTap: widget.onTapZone, child: page);
         }
-        if (mode != PageTurnMode.tap) {
+        if (!scrolling && mode != PageTurnMode.tap) {
           page = _SwipeTurns(onHorizontalDragEnd: widget.onSwipe, child: page);
         }
         return page;
@@ -633,12 +709,376 @@ class _TextPage extends StatelessWidget {
   }
 }
 
+/// A paginated EPUB page with selectable text and inline annotations.
+class _EpubPage extends StatefulWidget {
+  const _EpubPage({
+    required this.state,
+    required this.backend,
+    required this.settings,
+    required this.serifReading,
+    required this.session,
+  });
+
+  final ReaderState state;
+  final EpubReaderBackend backend;
+  final ReaderSettings settings;
+  final bool serifReading;
+  final ReaderSession session;
+
+  @override
+  State<_EpubPage> createState() => _EpubPageState();
+}
+
+class _EpubPageState extends State<_EpubPage> {
+  @override
+  Widget build(BuildContext context) {
+    final PaperTypography type = PaperTypography.of(context);
+    final PaperPalette palette = type.palette;
+    final TextPage page = widget.backend.currentPage;
+    final TextStyle style = _readingStyle(
+      widget.settings,
+      widget.serifReading,
+      palette,
+    );
+    final List<EpubAnnotationSpan> spans = widget.backend.spansForPage(
+      widget.state.pageIndex,
+      widget.state.annotations,
+    );
+
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: widget.settings.margin),
+      child: Align(
+        alignment: Alignment.topLeft,
+        child: SingleChildScrollView(
+          child: SelectableText.rich(
+            TextSpan(
+              style: style,
+              children: _annotationSpans(
+                text: page.text,
+                baseOffset: page.start,
+                spans: spans,
+                baseStyle: style,
+                palette: palette,
+              ),
+            ),
+            textAlign: TextAlign.justify,
+            contextMenuBuilder:
+                (BuildContext context, EditableTextState state) {
+                  return _selectionToolbar(
+                    context: context,
+                    state: state,
+                    session: widget.session,
+                    baseOffset: page.start,
+                  );
+                },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A continuous EPUB, with the same selectable text and annotation rendering as
+/// the paged surface. Scroll position is stored as text fraction plus a stable
+/// chapter locator, so reopening resumes near the same paragraph.
+class _EpubScrollPage extends StatefulWidget {
+  const _EpubScrollPage({
+    required this.state,
+    required this.backend,
+    required this.settings,
+    required this.serifReading,
+    required this.session,
+  });
+
+  final ReaderState state;
+  final EpubReaderBackend backend;
+  final ReaderSettings settings;
+  final bool serifReading;
+  final ReaderSession session;
+
+  @override
+  State<_EpubScrollPage> createState() => _EpubScrollPageState();
+}
+
+class _EpubScrollPageState extends State<_EpubScrollPage> {
+  final ScrollController _controller = ScrollController();
+  bool _initialised = false;
+  bool _programmatic = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _restoreInitial());
+  }
+
+  @override
+  void didUpdateWidget(_EpubScrollPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final double? target = widget.state.scrollRequestFraction;
+    if (target != null &&
+        widget.state.scrollRequestId != oldWidget.state.scrollRequestId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _jumpToFraction(target);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller
+      ..removeListener(_onScroll)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _restoreInitial() {
+    if (_initialised || !mounted) return;
+    _initialised = true;
+    _jumpToFraction(widget.state.initialScrollFraction);
+  }
+
+  void _jumpToFraction(double fraction) {
+    if (!_controller.hasClients) return;
+    final double max = _controller.position.maxScrollExtent;
+    if (max <= 0) return;
+    _programmatic = true;
+    _controller.jumpTo((max * fraction.clamp(0.0, 1.0)).clamp(0.0, max));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _programmatic = false;
+    });
+  }
+
+  void _onScroll() {
+    if (_programmatic ||
+        !_controller.hasClients ||
+        _controller.position.maxScrollExtent <= 0) {
+      return;
+    }
+    final double fraction =
+        _controller.offset / _controller.position.maxScrollExtent;
+    widget.session.setScrollFraction(fraction);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final PaperTypography type = PaperTypography.of(context);
+    final PaperPalette palette = type.palette;
+    final TextStyle style = _readingStyle(
+      widget.settings,
+      widget.serifReading,
+      palette,
+    );
+    final List<EpubAnnotationSpan> spans = widget.backend.annotationSpans(
+      widget.state.annotations,
+    );
+
+    return Scrollbar(
+      controller: _controller,
+      child: SingleChildScrollView(
+        controller: _controller,
+        padding: EdgeInsets.fromLTRB(
+          widget.settings.margin,
+          PaperSpace.md,
+          widget.settings.margin,
+          PaperSpace.xl,
+        ),
+        child: SelectableText.rich(
+          TextSpan(
+            style: style,
+            children: _annotationSpans(
+              text: widget.backend.book.text,
+              baseOffset: 0,
+              spans: spans,
+              baseStyle: style,
+              palette: palette,
+            ),
+          ),
+          textAlign: TextAlign.justify,
+          contextMenuBuilder: (BuildContext context, EditableTextState state) {
+            return _selectionToolbar(
+              context: context,
+              state: state,
+              session: widget.session,
+              baseOffset: 0,
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+TextStyle _readingStyle(
+  ReaderSettings settings,
+  bool serifReading,
+  PaperPalette palette,
+) {
+  return ReadingTextStyle.forReader(
+    fontSizeScale: settings.fontSize,
+    lineHeight: settings.lineHeight,
+    serifFamily: serifReading ? kPaperSerifFamily : null,
+  ).toTextStyle().copyWith(color: palette.ink);
+}
+
+List<TextSpan> _annotationSpans({
+  required String text,
+  required int baseOffset,
+  required List<EpubAnnotationSpan> spans,
+  required TextStyle baseStyle,
+  required PaperPalette palette,
+}) {
+  final List<EpubAnnotationSpan> relevant = spans
+      .where(
+        (EpubAnnotationSpan span) =>
+            span.end > baseOffset && span.start < baseOffset + text.length,
+      )
+      .toList(growable: false);
+  if (relevant.isEmpty) {
+    return <TextSpan>[TextSpan(text: text, style: baseStyle)];
+  }
+
+  final Set<int> cuts = <int>{0, text.length};
+  for (final EpubAnnotationSpan span in relevant) {
+    cuts
+      ..add((span.start - baseOffset).clamp(0, text.length))
+      ..add((span.end - baseOffset).clamp(0, text.length));
+  }
+  final List<int> ordered = cuts.toList()..sort();
+  final List<TextSpan> result = <TextSpan>[];
+  for (int i = 0; i + 1 < ordered.length; i++) {
+    final int start = ordered[i];
+    final int end = ordered[i + 1];
+    if (end <= start) continue;
+    final int globalStart = baseOffset + start;
+    final int globalEnd = baseOffset + end;
+    final List<EpubAnnotationSpan> active = relevant
+        .where(
+          (EpubAnnotationSpan span) =>
+              span.start <= globalStart && span.end >= globalEnd,
+        )
+        .toList(growable: false);
+    TextStyle style = baseStyle;
+    if (active.isNotEmpty) {
+      final bool highlight = active.any(
+        (EpubAnnotationSpan span) => span.kind == AnnotationKind.highlight.id,
+      );
+      final bool note = active.any(
+        (EpubAnnotationSpan span) =>
+            span.kind == AnnotationKind.note.id || span.hasNote,
+      );
+      final bool underline = active.any(
+        (EpubAnnotationSpan span) => span.kind == AnnotationKind.underline.id,
+      );
+      if (highlight) style = style.copyWith(backgroundColor: palette.rule);
+      if (note) {
+        style = style.copyWith(
+          backgroundColor: palette.inkFaint.withValues(alpha: 0.18),
+        );
+      }
+      if (underline || note) {
+        style = style.copyWith(
+          decoration: TextDecoration.underline,
+          decorationColor: palette.ink,
+          decorationStyle: note
+              ? TextDecorationStyle.dotted
+              : TextDecorationStyle.solid,
+        );
+      }
+    }
+    result.add(TextSpan(text: text.substring(start, end), style: style));
+  }
+  return result;
+}
+
+Widget _selectionToolbar({
+  required BuildContext context,
+  required EditableTextState state,
+  required ReaderSession session,
+  required int baseOffset,
+}) {
+  final TextSelection selection = state.textEditingValue.selection;
+  final List<ContextMenuButtonItem> items = List<ContextMenuButtonItem>.of(
+    state.contextMenuButtonItems,
+  );
+  if (selection.isValid && !selection.isCollapsed) {
+    void add(AnnotationKind kind) {
+      state.hideToolbar();
+      unawaited(
+        _addAnnotation(
+          context: context,
+          session: session,
+          kind: kind,
+          start: baseOffset + selection.start,
+          end: baseOffset + selection.end,
+        ),
+      );
+    }
+
+    items.addAll(<ContextMenuButtonItem>[
+      ContextMenuButtonItem(
+        label: 'Highlight',
+        onPressed: () => add(AnnotationKind.highlight),
+      ),
+      ContextMenuButtonItem(
+        label: 'Underline',
+        onPressed: () => add(AnnotationKind.underline),
+      ),
+      ContextMenuButtonItem(
+        label: 'Add note',
+        onPressed: () => add(AnnotationKind.note),
+      ),
+    ]);
+  }
+  return AdaptiveTextSelectionToolbar.buttonItems(
+    anchors: state.contextMenuAnchors,
+    buttonItems: items,
+  );
+}
+
+Future<void> _addAnnotation({
+  required BuildContext context,
+  required ReaderSession session,
+  required AnnotationKind kind,
+  required int start,
+  required int end,
+}) async {
+  String? note;
+  if (kind == AnnotationKind.note) {
+    note = await showPaperTextPrompt(
+      context,
+      title: 'Attach a note',
+      label: 'Note',
+      confirmLabel: 'Save note',
+      maxLength: 2000,
+    );
+    if (note == null || note.trim().isEmpty) return;
+  }
+  try {
+    await session.addAnnotation(kind: kind, start: start, end: end, note: note);
+    if (!context.mounted) return;
+    PaperToast.show(
+      context,
+      kind == AnnotationKind.note ? 'Note saved' : '${kind.label} saved',
+      icon: kind == AnnotationKind.note
+          ? Icons.sticky_note_2_outlined
+          : Icons.format_quote_outlined,
+    );
+  } on PaperException catch (error) {
+    if (!context.mounted) return;
+    PaperToast.show(context, error.message, icon: Icons.error_outline);
+  }
+}
+
 class _ReaderTopBar extends StatelessWidget {
   const _ReaderTopBar({
     required this.state,
     required this.visible,
     required this.showPageNumbers,
     required this.onBack,
+    required this.onToc,
+    required this.onSearch,
+    required this.onAnnotations,
     required this.onBookmarks,
     required this.onSettings,
   });
@@ -647,6 +1087,9 @@ class _ReaderTopBar extends StatelessWidget {
   final bool visible;
   final bool showPageNumbers;
   final VoidCallback onBack;
+  final VoidCallback onToc;
+  final VoidCallback onSearch;
+  final VoidCallback onAnnotations;
   final VoidCallback onBookmarks;
   final VoidCallback onSettings;
 
@@ -654,6 +1097,7 @@ class _ReaderTopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final PaperPalette palette = paperPalette(context);
     final PaperTypography type = PaperTypography.of(context);
+    final bool isEpub = state.backend is EpubReaderBackend;
 
     return _AnimatedBar(
       visible: visible,
@@ -685,7 +1129,7 @@ class _ReaderTopBar extends StatelessWidget {
                     ),
                     if (showPageNumbers)
                       Text(
-                        state.backend.positionLabel,
+                        state.positionLabel,
                         style: type.meta,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -693,21 +1137,91 @@ class _ReaderTopBar extends StatelessWidget {
                   ],
                 ),
               ),
-              IconButton(
-                onPressed: onBookmarks,
-                icon: const Icon(Icons.bookmarks_outlined),
-                tooltip: 'Bookmarks (${state.bookmarks.length})',
-              ),
-              IconButton(
-                onPressed: onSettings,
-                icon: const Icon(Icons.text_fields),
-                tooltip: 'Reading settings',
+              if (isEpub)
+                IconButton(
+                  onPressed: onSearch,
+                  icon: const Icon(Icons.search),
+                  tooltip: 'Search in book',
+                ),
+              PopupMenuButton<_ReaderMenuAction>(
+                tooltip: 'Reader menu',
+                icon: const Icon(Icons.more_vert),
+                onSelected: (_ReaderMenuAction action) {
+                  switch (action) {
+                    case _ReaderMenuAction.toc:
+                      onToc();
+                      break;
+                    case _ReaderMenuAction.bookmarks:
+                      onBookmarks();
+                      break;
+                    case _ReaderMenuAction.annotations:
+                      onAnnotations();
+                      break;
+                    case _ReaderMenuAction.settings:
+                      onSettings();
+                      break;
+                  }
+                },
+                itemBuilder: (BuildContext context) =>
+                    <PopupMenuEntry<_ReaderMenuAction>>[
+                      if (isEpub)
+                        const PopupMenuItem<_ReaderMenuAction>(
+                          value: _ReaderMenuAction.toc,
+                          child: _MenuRow(
+                            icon: Icons.list_alt_outlined,
+                            label: 'Contents',
+                          ),
+                        ),
+                      PopupMenuItem<_ReaderMenuAction>(
+                        value: _ReaderMenuAction.bookmarks,
+                        child: _MenuRow(
+                          icon: Icons.bookmarks_outlined,
+                          label: 'Bookmarks (${state.bookmarks.length})',
+                        ),
+                      ),
+                      if (isEpub)
+                        PopupMenuItem<_ReaderMenuAction>(
+                          value: _ReaderMenuAction.annotations,
+                          child: _MenuRow(
+                            icon: Icons.format_quote_outlined,
+                            label: 'Annotations (${state.annotations.length})',
+                          ),
+                        ),
+                      const PopupMenuItem<_ReaderMenuAction>(
+                        value: _ReaderMenuAction.settings,
+                        child: _MenuRow(
+                          icon: Icons.text_fields,
+                          label: 'Reading settings',
+                        ),
+                      ),
+                    ],
               ),
               const SizedBox(width: PaperSpace.xs),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+enum _ReaderMenuAction { toc, bookmarks, annotations, settings }
+
+class _MenuRow extends StatelessWidget {
+  const _MenuRow({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Icon(icon, size: 18),
+        const SizedBox(width: PaperSpace.sm),
+        Text(label),
+      ],
     );
   }
 }
@@ -733,8 +1247,10 @@ class _ReaderBottomBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final PaperPalette palette = paperPalette(context);
     final PaperTypography type = PaperTypography.of(context);
-    final bool first = state.pageIndex <= 0;
-    final bool last = state.pageIndex >= state.pageCount - 1;
+    final bool first = state.pageIndex <= 0 && state.scrollPosition == null;
+    final bool last =
+        state.pageIndex >= state.pageCount - 1 && state.scrollPosition == null;
+    final bool scrolling = state.scrollPosition != null;
 
     return _AnimatedBar(
       visible: visible,
@@ -758,7 +1274,7 @@ class _ReaderBottomBar extends StatelessWidget {
                   IconButton(
                     onPressed: first ? null : onPrevious,
                     icon: const Icon(Icons.chevron_left),
-                    tooltip: 'Previous page',
+                    tooltip: scrolling ? 'Scroll back' : 'Previous page',
                   ),
                   Expanded(
                     child: Center(
@@ -774,12 +1290,13 @@ class _ReaderBottomBar extends StatelessWidget {
                             children: <Widget>[
                               Flexible(
                                 child: Text(
-                                  state.backend.positionLabel,
+                                  state.positionLabel,
                                   style: type.meta,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                              if (!state.backend.isPageCountExact) ...<Widget>[
+                              if (!state.backend.isPageCountExact &&
+                                  !scrolling) ...<Widget>[
                                 const SizedBox(width: PaperSpace.xs),
                                 Tooltip(
                                   message:
@@ -801,7 +1318,7 @@ class _ReaderBottomBar extends StatelessWidget {
                   IconButton(
                     onPressed: last ? null : onNext,
                     icon: const Icon(Icons.chevron_right),
-                    tooltip: 'Next page',
+                    tooltip: scrolling ? 'Scroll forward' : 'Next page',
                   ),
                   IconButton(
                     onPressed: onToggleBookmark,
@@ -937,7 +1454,411 @@ class _BookmarksSheet extends ConsumerWidget {
   }
 }
 
-/// Reading settings, applied to the open document as they change.
+/// The nested table of contents for an EPUB.
+class _TocSheet extends StatelessWidget {
+  const _TocSheet({required this.entries, required this.session});
+
+  final List<EpubTocEntry> entries;
+  final ReaderSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    final PaperPalette palette = paperPalette(context);
+    final List<EpubTocEntry> flat = <EpubTocEntry>[
+      for (final EpubTocEntry entry in entries) ...entry.flattened,
+    ];
+
+    return SafeArea(
+      top: false,
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.72,
+        child: Column(
+          children: <Widget>[
+            _SheetHeader(
+              title: 'Contents',
+              onClose: () => Navigator.of(context).pop(),
+            ),
+            const PaperRule(strong: true),
+            Expanded(
+              child: ListView.builder(
+                itemCount: flat.length,
+                itemBuilder: (BuildContext context, int index) {
+                  final EpubTocEntry entry = flat[index];
+                  return PaperListTile(
+                    title: entry.title,
+                    dense: true,
+                    leading: SizedBox(
+                      width: 18 + entry.depth * 16,
+                      child: Icon(
+                        Icons.article_outlined,
+                        size: 17,
+                        color: palette.inkMuted,
+                      ),
+                    ),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      session.goToTocEntry(entry);
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// In-book search. Results are chapter excerpts with a stable text offset, so
+/// tapping one navigates without depending on the current pagination.
+class _SearchSheet extends StatefulWidget {
+  const _SearchSheet({required this.session});
+
+  final ReaderSession session;
+
+  @override
+  State<_SearchSheet> createState() => _SearchSheetState();
+}
+
+class _SearchSheetState extends State<_SearchSheet> {
+  final TextEditingController _controller = TextEditingController();
+  Timer? _debounce;
+  List<EpubSearchResult> _results = const <EpubSearchResult>[];
+  String _query = '';
+  bool _searching = false;
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onChanged(String query) {
+    _debounce?.cancel();
+    setState(() {
+      _query = query;
+      if (query.trim().length < 2) {
+        _results = const <EpubSearchResult>[];
+        _searching = false;
+      } else {
+        _searching = true;
+      }
+    });
+    if (query.trim().length < 2) return;
+    _debounce = Timer(const Duration(milliseconds: 260), () {
+      if (!mounted) return;
+      final List<EpubSearchResult> results = widget.session.search(query);
+      setState(() {
+        _results = results;
+        _searching = false;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final PaperTypography type = PaperTypography.of(context);
+    final PaperPalette palette = paperPalette(context);
+
+    return SafeArea(
+      top: false,
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.78,
+        child: Column(
+          children: <Widget>[
+            _SheetHeader(
+              title: 'Search in book',
+              onClose: () => Navigator.of(context).pop(),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                PaperSpace.gutter,
+                PaperSpace.sm,
+                PaperSpace.gutter,
+                PaperSpace.sm,
+              ),
+              child: PaperSearchField(
+                controller: _controller,
+                autofocus: true,
+                hintText: 'At least two letters',
+                onChanged: _onChanged,
+              ),
+            ),
+            const PaperRule(strong: true),
+            Expanded(
+              child: _searching
+                  ? const PaperLoading(label: 'Searching')
+                  : _query.trim().length < 2
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(PaperSpace.xl),
+                        child: Text(
+                          'Search this book for a word or phrase. Results show '
+                          'the chapter and a little context.',
+                          style: type.bodyQuiet,
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    )
+                  : _results.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No matches for "${_query.trim()}".',
+                        style: type.bodyQuiet,
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: _results.length,
+                      itemBuilder: (BuildContext context, int index) {
+                        final EpubSearchResult result = _results[index];
+                        return PaperListTile(
+                          title: result.chapterTitle,
+                          subtitle: result.excerpt,
+                          leading: Icon(
+                            Icons.search,
+                            size: 18,
+                            color: palette.inkMuted,
+                          ),
+                          onTap: () {
+                            Navigator.of(context).pop();
+                            widget.session.goToOffset(result.globalOffset);
+                          },
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The annotation library for the open document. Unresolved anchors remain
+/// visible with their excerpt and note instead of disappearing.
+class _AnnotationsSheet extends ConsumerWidget {
+  const _AnnotationsSheet({required this.documentId});
+
+  final String documentId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AsyncValue<ReaderState> asyncState = ref.watch(
+      readerProvider(documentId),
+    );
+    final ReaderState? current = asyncState.value;
+    if (current == null) {
+      return const SafeArea(
+        top: false,
+        child: SizedBox(height: 280, child: PaperLoading(label: 'Annotations')),
+      );
+    }
+    final ReaderSession session = ref.read(readerProvider(documentId).notifier);
+    final PaperPalette palette = paperPalette(context);
+
+    return SafeArea(
+      top: false,
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.76,
+        child: Column(
+          children: <Widget>[
+            _SheetHeader(
+              title: 'Annotations',
+              onClose: () => Navigator.of(context).pop(),
+            ),
+            const PaperRule(strong: true),
+            if (current.annotations.isEmpty)
+              Expanded(
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(PaperSpace.xl),
+                    child: Text(
+                      'Select a passage and choose Highlight, Underline or '
+                      'Add note. Annotations stay anchored to the text when '
+                      'the type size or screen changes.',
+                      style: PaperTypography.of(context).bodyQuiet,
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              )
+            else
+              Expanded(
+                child: ListView.builder(
+                  itemCount: current.annotations.length,
+                  itemBuilder: (BuildContext context, int index) {
+                    final Annotation annotation = current.annotations[index];
+                    return _AnnotationTile(
+                      annotation: annotation,
+                      palette: palette,
+                      onOpen: annotation.orphaned
+                          ? null
+                          : () {
+                              Navigator.of(context).pop();
+                              session.goToAnnotation(annotation);
+                            },
+                      onEdit: () => _editNote(context, session, annotation),
+                      onDelete: () => _delete(context, session, annotation),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editNote(
+    BuildContext context,
+    ReaderSession session,
+    Annotation annotation,
+  ) async {
+    final String? note = await showPaperTextPrompt(
+      context,
+      title: 'Note',
+      label: annotation.excerpt,
+      initialValue: annotation.note ?? '',
+      confirmLabel: 'Save',
+      maxLength: 2000,
+    );
+    if (note == null) return;
+    await session.updateAnnotationNote(annotation.id, note);
+  }
+
+  Future<void> _delete(
+    BuildContext context,
+    ReaderSession session,
+    Annotation annotation,
+  ) async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          backgroundColor: paperPalette(context).canvas,
+          title: const Text('Delete annotation?'),
+          content: const Text('The highlight and its note will be removed.'),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed == true) await session.deleteAnnotation(annotation.id);
+  }
+}
+
+class _AnnotationTile extends StatelessWidget {
+  const _AnnotationTile({
+    required this.annotation,
+    required this.palette,
+    required this.onOpen,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final Annotation annotation;
+  final PaperPalette palette;
+  final VoidCallback? onOpen;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final String chapter = annotation.chapterTitle?.trim() ?? '';
+    final String title = annotation.orphaned
+        ? 'Unresolved passage'
+        : chapter.isEmpty
+        ? annotation.kind.label
+        : chapter;
+    final List<String> details = <String>[
+      annotation.excerpt,
+      if (annotation.hasNote) 'Note: ${annotation.note!.trim()}',
+      if (annotation.orphaned)
+        'The book changed, so this passage cannot be highlighted. '
+            'The title and note are kept.',
+    ];
+
+    return PaperListTile(
+      title: title,
+      subtitle: details.join('\n'),
+      leading: Icon(
+        switch (annotation.kind) {
+          AnnotationKind.highlight => Icons.format_quote_outlined,
+          AnnotationKind.underline => Icons.format_underline,
+          AnnotationKind.note => Icons.sticky_note_2_outlined,
+        },
+        size: 19,
+        color: palette.inkMuted,
+      ),
+      onTap: onOpen,
+      trailing: PopupMenuButton<_AnnotationAction>(
+        tooltip: 'Annotation actions',
+        icon: const Icon(Icons.more_horiz, size: 18),
+        onSelected: (_AnnotationAction action) {
+          switch (action) {
+            case _AnnotationAction.edit:
+              onEdit();
+              break;
+            case _AnnotationAction.delete:
+              onDelete();
+              break;
+          }
+        },
+        itemBuilder: (BuildContext context) =>
+            const <PopupMenuEntry<_AnnotationAction>>[
+              PopupMenuItem<_AnnotationAction>(
+                value: _AnnotationAction.edit,
+                child: Text('Edit note'),
+              ),
+              PopupMenuItem<_AnnotationAction>(
+                value: _AnnotationAction.delete,
+                child: Text('Delete'),
+              ),
+            ],
+      ),
+    );
+  }
+}
+
+enum _AnnotationAction { edit, delete }
+
+class _SheetHeader extends StatelessWidget {
+  const _SheetHeader({required this.title, required this.onClose});
+
+  final String title;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        PaperSpace.gutter,
+        PaperSpace.lg,
+        PaperSpace.gutter,
+        PaperSpace.sm,
+      ),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(title, style: PaperTypography.of(context).heading),
+          ),
+          PaperButton(label: 'Close', onPressed: onClose),
+        ],
+      ),
+    );
+  }
+}
+
 class _ReadingSettingsSheet extends ConsumerWidget {
   const _ReadingSettingsSheet({required this.session});
 
@@ -1027,6 +1948,41 @@ class _ReadingSettingsSheet extends ConsumerWidget {
               ),
             ),
             const PaperRule(inset: PaperSpace.gutter),
+            if (session.epubBackend != null) ...<Widget>[
+              PaperSettingRow(
+                label: 'Flow',
+                subtitle: 'Paged suits e-ink; scrolling suits long sessions.',
+                trailing: Wrap(
+                  spacing: PaperSpace.xs,
+                  children: <Widget>[
+                    for (final ReaderFlow flow in ReaderFlow.values)
+                      PaperChip(
+                        label: flow.label,
+                        selected: reader.flow == flow,
+                        onTap: () =>
+                            applyLayout(() => controller.setReaderFlow(flow)),
+                      ),
+                  ],
+                ),
+              ),
+              const PaperRule(inset: PaperSpace.gutter),
+            ],
+            PaperSettingRow(
+              label: 'Page theme',
+              subtitle: 'White, warm paper or inverted ink.',
+              trailing: Wrap(
+                spacing: PaperSpace.xs,
+                children: <Widget>[
+                  for (final PaperStyle style in PaperStyle.values)
+                    PaperChip(
+                      label: style.label,
+                      selected: settings.appearance.style == style,
+                      onTap: () => store(() => controller.setPaperStyle(style)),
+                    ),
+                ],
+              ),
+            ),
+            const PaperRule(inset: PaperSpace.gutter),
             PaperSettingRow(
               label: 'Page turns',
               subtitle: 'Tap zones suit e-ink; swipe suits a scrolling habit.',
@@ -1074,8 +2030,8 @@ class _ReadingSettingsSheet extends ConsumerWidget {
             ),
             const SizedBox(height: PaperSpace.md),
             Text(
-              'Text size and margins only affect plain text files. A PDF is '
-              'drawn exactly as it was authored.',
+              'Text size, spacing, margins and flow affect TXT and EPUB. A PDF '
+              'is drawn exactly as it was authored.',
               style: type.caption.copyWith(color: palette.inkFaint),
             ),
             const SizedBox(height: PaperSpace.lg),

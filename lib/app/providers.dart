@@ -8,12 +8,14 @@ import '../core/platform/launcher_service.dart';
 import '../core/platform/pdf_service.dart';
 import '../core/storage/app_database.dart';
 import '../core/storage/app_storage.dart';
+import '../features/annotations/data/annotation_repository.dart';
 import '../features/files/data/location_repository.dart';
 import '../features/library/data/bookmark_repository.dart';
 import '../features/library/data/document_repository.dart';
 import '../features/library/data/library_service.dart';
 import '../features/launcher/data/app_catalog.dart';
 import '../features/notes/data/note_repository.dart';
+import '../features/reader/epub/epub_parser.dart';
 import '../features/settings/data/settings_repository.dart';
 import '../features/tasks/data/task_repository.dart';
 
@@ -61,6 +63,18 @@ final bookmarkRepositoryProvider = Provider<BookmarkRepository>((Ref ref) {
   ref.onDispose(repository.dispose);
   return repository;
 });
+
+final annotationRepositoryProvider = Provider<AnnotationRepository>((Ref ref) {
+  final AnnotationRepository repository = AnnotationRepository(
+    ref.watch(appDatabaseProvider),
+  );
+  ref.onDispose(repository.dispose);
+  return repository;
+});
+
+final epubParserProvider = Provider<EpubParser>(
+  (Ref ref) => const EpubParser(),
+);
 
 final noteRepositoryProvider = Provider<NoteRepository>((Ref ref) {
   final NoteRepository repository = NoteRepository(
@@ -112,6 +126,7 @@ final libraryServiceProvider = Provider<LibraryService>(
     bookmarks: ref.watch(bookmarkRepositoryProvider),
     storage: ref.watch(appStorageProvider),
     pdf: ref.watch(pdfServiceProvider),
+    epub: ref.watch(epubParserProvider),
   ),
 );
 

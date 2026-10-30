@@ -8,9 +8,12 @@ import '../../../core/platform/document_import_service.dart';
 import '../../../core/platform/pdf_service.dart';
 import '../../../core/storage/app_storage.dart';
 import '../../../core/utils/date_format.dart';
+import '../../../core/utils/file_fingerprint.dart';
 import '../../../core/utils/ids.dart';
 import '../domain/document.dart';
 import '../domain/library_models.dart';
+import '../../reader/epub/epub_book.dart';
+import '../../reader/epub/epub_parser.dart';
 import 'bookmark_repository.dart';
 import 'document_repository.dart';
 
@@ -26,34 +29,39 @@ class LibraryService {
     required BookmarkRepository bookmarks,
     required AppStorage storage,
     required PdfService pdf,
+    EpubParser epub = const EpubParser(),
   }) : _documents = documents,
        _bookmarks = bookmarks,
        _storage = storage,
-       _pdf = pdf;
+       _pdf = pdf,
+       _epub = epub;
 
   final DocumentRepository _documents;
   final BookmarkRepository _bookmarks;
   final AppStorage _storage;
   final PdfService _pdf;
+  final EpubParser _epub;
 
   DocumentRepository get documents => _documents;
   BookmarkRepository get bookmarks => _bookmarks;
 
   /// Imports a file the user picked through the system document picker.
   ///
-  /// Returns the stored document. Throws [PaperException] for every
-  /// user-recoverable case: unsupported format, oversized file, a source that
-  /// vanished, or a destination write that failed.
+  /// A source that was imported before is never turned into a second row. If
+  /// its app-private copy was deleted, the existing row is revived instead:
+  /// bookmarks, annotations, progress and any user-renamed title survive.
   Future<Document> importFile(PickedFile picked) async {
     final String extension = _extensionOf(picked.name);
     final DocumentFormat format = picked.format;
     if (format == DocumentFormat.unknown) {
       throw PaperException.unsupportedFormat(
         'PaperOS cannot read ${picked.name}. '
-        'It currently opens PDF and plain text documents.',
+        'It currently opens PDF, plain text and EPUB documents.',
       );
     }
-    if (!DocumentFormat.readableExtensions.contains(extension)) {
+    if (!DocumentFormat.readableExtensions.contains(
+      extension.replaceFirst('.', ''),
+    )) {
       throw PaperException.unsupportedFormat(
         'PaperOS recognises ${format.label} but does not open it yet.',
       );
@@ -71,22 +79,39 @@ class LibraryService {
         'That file is no longer where it was. Try importing it again.',
       );
     }
-
-    // Re-importing the same source is a no-op, not a duplicate.
-    if (picked.sourceUri != null) {
-      final Document? existing = await _documents.findBySourceUri(
-        picked.sourceUri!,
+    final int sourceLength = await source.length();
+    if (sourceLength > PaperConfig.maxImportBytes) {
+      throw PaperException.unsupportedFormat(
+        'That file is larger than ${formatBytes(PaperConfig.maxImportBytes)}. '
+        'PaperOS will not import it.',
       );
+    }
+
+    // Exact source identity is the cheapest and strongest duplicate check.
+    Document? existing = picked.sourceUri == null
+        ? null
+        : await _documents.findBySourceUri(picked.sourceUri!);
+    if (existing != null && File(existing.localPath).existsSync()) {
+      return existing;
+    }
+
+    final String? fingerprint = await fileFingerprint(source);
+    if (existing == null && fingerprint != null) {
+      existing = await _documents.findByFingerprint(fingerprint);
       if (existing != null && File(existing.localPath).existsSync()) {
         return existing;
       }
     }
 
-    final String id = newLocalId();
+    final String id = existing?.id ?? newLocalId();
     final Directory libraryDir = await _storage.library();
-    final File destination = File(
-      p.join(libraryDir.path, '$id${_extensionOf(picked.name)}'),
+    final File destination = _destinationFor(
+      libraryDir: libraryDir,
+      existing: existing,
+      id: id,
+      extension: extension,
     );
+    await destination.parent.create(recursive: true);
 
     int written;
     try {
@@ -101,6 +126,11 @@ class LibraryService {
     }
 
     if (written == 0) {
+      try {
+        await destination.delete();
+      } on FileSystemException {
+        // Nothing useful to do; the import is already failing.
+      }
       throw const PaperException.corruptDocument(
         'That file is empty, so there is nothing to read.',
       );
@@ -108,6 +138,13 @@ class LibraryService {
 
     DocumentStatus status = DocumentStatus.ready;
     int? pageCount;
+    String title = stripExtension(picked.name);
+    String? author;
+    String? publisher;
+    String? language;
+    String? identifier;
+    String? description;
+    String? coverPath = existing?.coverPath;
 
     if (format == DocumentFormat.pdf) {
       final PdfProbe probe = await probePdf(destination.path);
@@ -118,6 +155,45 @@ class LibraryService {
         // library shows a warning instead of a page count of zero.
         status = DocumentStatus.unreadable;
       }
+    } else if (format == DocumentFormat.epub) {
+      final _EpubProbe probe = await _probeEpub(destination.path);
+      if (probe.failure != null) {
+        status = DocumentStatus.unreadable;
+      } else {
+        final EpubBook book = probe.result!.book;
+        final String? metadataTitle = book.metadata.title?.trim();
+        if (metadataTitle != null && metadataTitle.isNotEmpty) {
+          title = metadataTitle;
+        }
+        author = book.metadata.author;
+        publisher = book.metadata.publisher;
+        language = book.metadata.language;
+        identifier = book.metadata.identifier;
+        description = book.metadata.description;
+        coverPath = await _saveCover(id, probe.result!) ?? existing?.coverPath;
+      }
+    }
+
+    final String finalFingerprint = fingerprint ?? existing?.fingerprint ?? '';
+    if (existing != null) {
+      final Document revived = await _documents.relink(
+        existing,
+        localPath: destination.path,
+        sourceUri: picked.sourceUri,
+        sourceName: picked.name,
+        byteSize: written,
+        pageCount: pageCount ?? existing.pageCount,
+        status: status,
+        fingerprint: finalFingerprint,
+        title: title,
+        author: author,
+        publisher: publisher,
+        language: language,
+        identifier: identifier,
+        description: description,
+        coverPath: coverPath,
+      );
+      return revived;
     }
 
     final DateTime now = DateTime.now();
@@ -126,7 +202,7 @@ class LibraryService {
       localPath: destination.path,
       sourceUri: picked.sourceUri,
       sourceName: picked.name,
-      title: stripExtension(picked.name),
+      title: title,
       format: format,
       byteSize: written,
       pageCount: pageCount,
@@ -140,6 +216,13 @@ class LibraryService {
       addedAt: now,
       lastOpenedAt: null,
       openedSeconds: 0,
+      author: author,
+      publisher: publisher,
+      language: language,
+      identifier: identifier,
+      description: description,
+      coverPath: coverPath,
+      fingerprint: finalFingerprint.isEmpty ? null : finalFingerprint,
     );
 
     return _documents.insert(document);
@@ -153,10 +236,10 @@ class LibraryService {
     if (!_pdf.isSupported) {
       return const PdfProbe(pageCount: 0);
     }
+    PdfDocumentHandle? handle;
     try {
-      final PdfDocumentHandle handle = await _pdf.open(path);
+      handle = await _pdf.open(path);
       final int count = handle.pageCount;
-      await _pdf.close(handle.handle);
       if (count <= 0) {
         return const PdfProbe(
           pageCount: 0,
@@ -168,6 +251,45 @@ class LibraryService {
       return PdfProbe(pageCount: 0, failure: error.message);
     } catch (error) {
       return PdfProbe(pageCount: 0, failure: error.toString());
+    } finally {
+      final PdfDocumentHandle? opened = handle;
+      if (opened != null) {
+        // The probe's only job is the page count; a close failure must not turn
+        // a readable document into an import failure. The platform close is
+        // still attempted so a successful open never leaks a native handle.
+        try {
+          await _pdf.close(opened.handle);
+        } on Object {
+          // Best-effort cleanup; nothing else can be done with this handle.
+        }
+      }
+    }
+  }
+
+  Future<_EpubProbe> _probeEpub(String path) async {
+    try {
+      return _EpubProbe(result: _epub.parseFile(path));
+    } on EpubParseException catch (error) {
+      return _EpubProbe(failure: error.message);
+    } on PaperException catch (error) {
+      return _EpubProbe(failure: error.message);
+    } catch (error) {
+      return _EpubProbe(failure: 'This EPUB could not be opened.');
+    }
+  }
+
+  Future<String?> _saveCover(String id, EpubParseResult result) async {
+    final cover = result.coverBytes;
+    final String? extension = result.coverExtension;
+    if (cover == null || extension == null || cover.isEmpty) return null;
+    try {
+      final Directory directory = await _storage.covers();
+      final File file = File(p.join(directory.path, '$id.$extension'));
+      await file.writeAsBytes(cover, flush: true);
+      return file.path;
+    } on FileSystemException {
+      // A missing cover is cosmetic. Never fail an import because of it.
+      return null;
     }
   }
 
@@ -177,16 +299,24 @@ class LibraryService {
   /// consistent library and a stray file in `trash/` that is purged after a
   /// week. The reverse order could leave a row pointing at nothing.
   Future<void> remove(Document document) async {
+    final String? cover = document.coverPath;
     await _documents.delete(document.id);
     try {
       await _storage.trashFile(document.localPath);
     } on FileSystemException {
       // Already handled by the row deletion above.
     }
+    if (cover != null) {
+      try {
+        await _storage.trashFile(cover);
+      } on FileSystemException {
+        // Cover cleanup is best effort.
+      }
+    }
   }
 
-  /// Removes every document, its private copy, its progress and its
-  /// bookmarks. Notes and tasks are untouched.
+  /// Removes every document, its private copy, its progress, its bookmarks and
+  /// its annotations. Notes and tasks are untouched.
   ///
   /// Files are quarantined rather than unlinked, so a failure part-way through
   /// leaves recoverable data in `trash/` instead of a half-deleted library.
@@ -198,6 +328,14 @@ class LibraryService {
       } on FileSystemException {
         // The row is deleted regardless: a library that still lists a file the
         // user asked to remove is worse than an orphaned file in trash/.
+      }
+      final String? cover = document.coverPath;
+      if (cover != null) {
+        try {
+          await _storage.trashFile(cover);
+        } on FileSystemException {
+          // Cover cleanup is best effort.
+        }
       }
     }
     await _documents.clear();
@@ -238,10 +376,16 @@ class LibraryService {
     }
     if (document.status == DocumentStatus.unreadable) {
       facts.add('Could not be opened');
-    } else if (document.pageCount != null && document.pageCount! > 0) {
-      facts.add(
-        '${document.pageCount} page${document.pageCount == 1 ? '' : 's'}',
-      );
+    } else {
+      final String? author = document.author?.trim();
+      if (author != null && author.isNotEmpty) facts.add(author);
+      if (!DocumentFormat.isReflowable(document.format) &&
+          document.pageCount != null &&
+          document.pageCount! > 0) {
+        facts.add(
+          '${document.pageCount} page${document.pageCount == 1 ? '' : 's'}',
+        );
+      }
     }
     if (showByteSize && document.byteSize > 0) {
       facts.add(formatBytes(document.byteSize));
@@ -265,12 +409,17 @@ class LibraryService {
     if (position == null) return '';
     final int pageCount = document.pageCount ?? document.progress.pageCount;
     final List<String> parts = <String>[
-      if (position.page != null) 'Page ${position.page}',
+      if (position.page != null &&
+          !DocumentFormat.isReflowable(document.format))
+        'Page ${position.page}',
       formatPercent(document.progressFraction),
       if (document.lastOpenedAt != null)
         formatRelative(document.lastOpenedAt!, DateTime.now()),
     ];
-    if (parts.length == 2 && pageCount > 0 && position.page != null) {
+    if (parts.length == 2 &&
+        pageCount > 0 &&
+        position.page != null &&
+        !DocumentFormat.isReflowable(document.format)) {
       parts.insert(1, 'of $pageCount');
     }
     return parts.join(' · ');
@@ -280,6 +429,19 @@ class LibraryService {
     final int dot = name.lastIndexOf('.');
     if (dot < 0 || dot == name.length - 1) return '';
     return name.substring(dot).toLowerCase();
+  }
+
+  static File _destinationFor({
+    required Directory libraryDir,
+    required Document? existing,
+    required String id,
+    required String extension,
+  }) {
+    if (existing != null) {
+      final File old = File(existing.localPath);
+      if (p.equals(p.dirname(old.path), libraryDir.path)) return old;
+    }
+    return File(p.join(libraryDir.path, '$id$extension'));
   }
 
   /// Copies with a fixed-size buffer so a 400 MB textbook never becomes a
@@ -308,5 +470,12 @@ class PdfProbe {
 
   /// Non-null when the file could not be opened. Deliberately not an exception
   /// so that import can keep the file and flag it.
+  final String? failure;
+}
+
+class _EpubProbe {
+  const _EpubProbe({this.result, this.failure});
+
+  final EpubParseResult? result;
   final String? failure;
 }

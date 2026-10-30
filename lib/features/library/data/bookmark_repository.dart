@@ -85,14 +85,19 @@ class BookmarkRepository {
     required ReadingPosition position,
   }) {
     return _guard(() async {
+      final String? locator = position.locator;
       final List<Map<String, Object?>> rows = await (await _db).query(
         'bookmarks',
-        where: 'document_id = ? AND page = ? AND fraction = ?',
-        whereArgs: <Object?>[
-          documentId,
-          position.page ?? -1,
-          position.fraction ?? -1.0,
-        ],
+        where: locator != null
+            ? 'document_id = ? AND locator = ?'
+            : 'document_id = ? AND page = ? AND fraction = ?',
+        whereArgs: locator != null
+            ? <Object?>[documentId, locator]
+            : <Object?>[
+                documentId,
+                position.page ?? -1,
+                position.fraction ?? -1.0,
+              ],
         limit: 1,
       );
       return rows.isEmpty ? null : _fromRow(rows.first);
@@ -106,6 +111,7 @@ class BookmarkRepository {
     required ReadingPosition position,
     String? label,
     String? excerpt,
+    String? chapterTitle,
   }) {
     return _guard(() async {
       final Bookmark? existing = await atPosition(
@@ -113,10 +119,20 @@ class BookmarkRepository {
         position: position,
       );
       if (existing != null) {
-        if (label != null && existing.label != label) {
-          await _updateLabel(existing.id, label);
+        final bool labelChanged = label != null && existing.label != label;
+        final bool chapterChanged =
+            chapterTitle != null && existing.chapterTitle != chapterTitle;
+        if (labelChanged || chapterChanged) {
+          await _updateMetadata(
+            existing.id,
+            label: labelChanged ? label : null,
+            chapterTitle: chapterChanged ? chapterTitle : null,
+          );
         }
-        return existing.copyWith(label: label ?? existing.label);
+        return existing.copyWith(
+          label: labelChanged ? label : null,
+          chapterTitle: chapterChanged ? chapterTitle : null,
+        );
       }
 
       final Bookmark bookmark = Bookmark(
@@ -126,6 +142,8 @@ class BookmarkRepository {
         fraction: position.fraction ?? -1.0,
         label: label,
         excerpt: excerpt,
+        locator: position.locator,
+        chapterTitle: chapterTitle,
         createdAt: DateTime.now(),
       );
       await (await _db).insert(
@@ -138,10 +156,14 @@ class BookmarkRepository {
     });
   }
 
-  Future<void> _updateLabel(String id, String label) async {
+  Future<void> _updateMetadata(
+    String id, {
+    String? label,
+    String? chapterTitle,
+  }) async {
     await (await _db).update(
       'bookmarks',
-      <String, Object?>{'label': label},
+      <String, Object?>{'label': ?label, 'chapter_title': ?chapterTitle},
       where: 'id = ?',
       whereArgs: <Object?>[id],
     );
@@ -188,6 +210,8 @@ class BookmarkRepository {
     'fraction': b.fraction,
     'label': b.label,
     'excerpt': b.excerpt,
+    'locator': b.locator,
+    'chapter_title': b.chapterTitle,
     'created_at': b.createdAt.millisecondsSinceEpoch,
   };
 
@@ -198,18 +222,8 @@ class BookmarkRepository {
     fraction: (row['fraction'] as num?)?.toDouble() ?? -1.0,
     label: row['label'] as String?,
     excerpt: row['excerpt'] as String?,
+    locator: row['locator'] as String?,
+    chapterTitle: row['chapter_title'] as String?,
     createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at']! as int),
-  );
-}
-
-extension on Bookmark {
-  Bookmark copyWith({String? label}) => Bookmark(
-    id: id,
-    documentId: documentId,
-    page: page,
-    fraction: fraction,
-    label: label ?? this.label,
-    excerpt: excerpt,
-    createdAt: createdAt,
   );
 }

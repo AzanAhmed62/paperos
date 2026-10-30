@@ -63,6 +63,10 @@ class AppStorage {
 
   Future<Directory> notes() => ensure('notes');
 
+  /// Small extracted EPUB covers. Kept outside the library copy so deleting a
+  /// document cannot leave the database pointing at half a book.
+  Future<Directory> covers() => ensure('covers');
+
   Future<Directory> trash() => ensure('trash');
 
   /// Human readable summary of how much space PaperOS is using.

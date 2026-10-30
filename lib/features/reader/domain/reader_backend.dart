@@ -1,11 +1,12 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../core/platform/pdf_service.dart';
+import '../../annotations/domain/annotation.dart';
 import '../../library/domain/document.dart';
 import 'text_paginator.dart';
 
 /// Which rendering engine is driving the reader.
-enum ReaderFormat { pdf, text }
+enum ReaderFormat { pdf, text, epub }
 
 /// The format-specific half of a reading session.
 ///
@@ -28,6 +29,13 @@ abstract interface class ReaderBackend {
 
   /// 0..1 progress.
   double get progress;
+
+  /// Format-native locator for the current position, when the format has one.
+  String? get currentLocator;
+
+  /// Position as a fraction of the document's extracted text, independent of
+  /// pagination. Scroll mode uses this to restore a truthful place.
+  double get textFraction;
 
   /// Short position string, e.g. "Page 12 of 340" or "12% · page 4 of ~90".
   String get positionLabel;
@@ -80,6 +88,12 @@ class PdfReaderBackend implements ReaderBackend {
     if (_handle.pageCount <= 0) return 0;
     return ((_index + 1) / _handle.pageCount).clamp(0.0, 1.0);
   }
+
+  @override
+  String? get currentLocator => null;
+
+  @override
+  double get textFraction => progress;
 
   @override
   String get positionLabel => _handle.pageCount > 0
@@ -144,6 +158,12 @@ class TextReaderBackend implements ReaderBackend {
       paginator.fractionFor(_index, total: paginator.pageCount);
 
   @override
+  String? get currentLocator => null;
+
+  @override
+  double get textFraction => progress;
+
+  @override
   String get positionLabel {
     final String page = 'Page ${_index + 1}';
     if (paginator.isComplete) return '$page of ${paginator.pageCount}';
@@ -193,38 +213,85 @@ class ReaderState {
     required this.document,
     required this.backend,
     required this.bookmarks,
+    this.annotations = const <Annotation>[],
     this.chromeVisible = true,
+    this.scrollPosition,
+    this.scrollRequestFraction,
+    this.scrollRequestId = 0,
   });
 
   final Document document;
   final ReaderBackend backend;
   final List<Bookmark> bookmarks;
+  final List<Annotation> annotations;
   final bool chromeVisible;
+
+  /// Set while the EPUB scroll surface is active. Paged position and scroll
+  /// position are mutually exclusive; the latter wins when present.
+  final ReadingPosition? scrollPosition;
+
+  /// A one-shot instruction for the scroll surface: jump to this fraction.
+  final double? scrollRequestFraction;
+  final int scrollRequestId;
 
   int get pageIndex => backend.pageIndex;
   int get pageCount => backend.pageCount;
-  double get progress => backend.progress;
-  String get positionLabel => backend.positionLabel;
+  double get progress => scrollPosition?.fraction ?? backend.progress;
+  String get positionLabel {
+    if (scrollPosition != null && backend.format == ReaderFormat.epub) {
+      final int percent = (progress.clamp(0.0, 1.0) * 100).round();
+      return '$percent%';
+    }
+    return backend.positionLabel;
+  }
 
   /// The stored position for the page currently on screen.
   ReadingPosition get position {
+    final ReadingPosition? scrolled = scrollPosition;
+    if (scrolled != null) return scrolled;
     final int page = backend.pageIndex + 1;
     if (backend.format == ReaderFormat.pdf) {
       return ReadingPosition.atPage(page);
     }
-    // Continuous documents store the page index as the authoritative locator
-    // and the fraction alongside it, so that a resume never has to guess.
+    if (backend.format == ReaderFormat.epub) {
+      return ReadingPosition(
+        page: page,
+        fraction: backend.progress,
+        locator: backend.currentLocator,
+      );
+    }
+    // Continuous text stores the page index as the authoritative locator and
+    // the fraction alongside it, so that a resume never has to guess.
     return ReadingPosition(page: page, fraction: backend.progress);
   }
 
+  /// Fraction at which a freshly opened scroll surface should start.
+  double get initialScrollFraction =>
+      scrollPosition?.fraction ?? backend.textFraction;
+
   bool get isBookmarked => bookmarks.any((Bookmark b) => b.pointsAt(position));
 
-  ReaderState copyWith({List<Bookmark>? bookmarks, bool? chromeVisible}) {
+  ReaderState copyWith({
+    List<Bookmark>? bookmarks,
+    List<Annotation>? annotations,
+    bool? chromeVisible,
+    ReadingPosition? scrollPosition,
+    bool clearScrollPosition = false,
+    double? scrollRequestFraction,
+    int? scrollRequestId,
+  }) {
     return ReaderState(
       document: document,
       backend: backend,
       bookmarks: bookmarks ?? this.bookmarks,
+      annotations: annotations ?? this.annotations,
       chromeVisible: chromeVisible ?? this.chromeVisible,
+      scrollPosition: clearScrollPosition
+          ? null
+          : scrollPosition ?? this.scrollPosition,
+      scrollRequestFraction:
+          scrollRequestFraction ?? this.scrollRequestFraction,
+      scrollRequestId: scrollRequestId ?? this.scrollRequestId,
     );
   }
 }

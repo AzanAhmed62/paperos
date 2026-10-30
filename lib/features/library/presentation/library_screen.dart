@@ -48,7 +48,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
           ),
         ],
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(96),
+          preferredSize: const Size.fromHeight(104),
           child: _LibraryControls(query: query),
         ),
       ),
@@ -110,8 +110,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       return PaperEmptyState(
         title: 'Nothing here',
         message:
-            'Documents you open will be collected under Recent, and '
-            'favourites under Favourites.',
+            'This filter is empty. Recent collects documents you have opened; '
+            'Favourites keeps the ones you marked.',
         icon: Icons.menu_book_outlined,
         action: PaperButton(
           label: 'Show all',
@@ -124,7 +124,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     return PaperEmptyState(
       title: 'Your library is empty',
       message:
-          'Import a PDF or a text file to start reading. PaperOS keeps a '
+          'Import a PDF, EPUB or text file to start reading. PaperOS keeps a '
           'private copy, so the file stays readable even if you move the '
           'original.',
       icon: Icons.upload_file_outlined,
@@ -207,23 +207,47 @@ class _LibraryControls extends ConsumerWidget {
       ),
       child: Column(
         children: <Widget>[
-          PaperSearchField(
-            hintText: 'Search titles',
-            onChanged: controller.setSearch,
-          ),
-          const SizedBox(height: PaperSpace.sm),
           Row(
             children: <Widget>[
-              for (final LibraryScope scope in LibraryScope.values)
-                Padding(
-                  padding: const EdgeInsets.only(right: PaperSpace.sm),
-                  child: PaperChip(
-                    label: scope.label,
-                    selected: query.scope == scope,
-                    onTap: () => controller.setScope(scope),
-                  ),
+              Expanded(
+                child: PaperSearchField(
+                  hintText: 'Search titles or authors',
+                  onChanged: controller.setSearch,
                 ),
+              ),
+              const SizedBox(width: PaperSpace.xs),
+              PopupMenuButton<LibrarySort>(
+                tooltip: 'Sort library',
+                icon: const Icon(Icons.sort),
+                initialValue: query.sort,
+                onSelected: controller.setSort,
+                itemBuilder: (BuildContext context) =>
+                    <PopupMenuEntry<LibrarySort>>[
+                      for (final LibrarySort sort in LibrarySort.values)
+                        PopupMenuItem<LibrarySort>(
+                          value: sort,
+                          child: Text(sort.label),
+                        ),
+                    ],
+              ),
             ],
+          ),
+          const SizedBox(height: PaperSpace.sm),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: <Widget>[
+                for (final LibraryScope scope in LibraryScope.values)
+                  Padding(
+                    padding: const EdgeInsets.only(right: PaperSpace.sm),
+                    child: PaperChip(
+                      label: scope.label,
+                      selected: query.scope == scope,
+                      onTap: () => controller.setScope(scope),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
       ),

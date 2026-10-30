@@ -48,11 +48,13 @@ void main() {
   /// Lets real asynchronous work (the sqflite isolate, timers) run, which the
   /// fake-async widget clock deliberately does not advance on its own.
   Future<void> settle(WidgetTester tester) async {
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-    });
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
+    for (int i = 0; i < 3; i++) {
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+      });
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+    }
   }
 
   testWidgets('boots to Paper Home with the five destinations', (

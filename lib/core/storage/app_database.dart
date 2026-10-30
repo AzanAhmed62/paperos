@@ -55,6 +55,10 @@ class AppDatabaseOpener {
               _bundle(PaperSchema.createNotes, PaperSchema.indexesNotes),
               _bundle(PaperSchema.createTasks, PaperSchema.indexesTasks),
               _bundle(PaperSchema.createLocations, const <String>[]),
+              _bundle(
+                PaperSchema.createAnnotations,
+                PaperSchema.indexesAnnotations,
+              ),
             ]) {
               await database.execute(bundle['sql']! as String);
               for (final Object? index in bundle['indexes']! as List<Object?>) {
@@ -63,8 +67,13 @@ class AppDatabaseOpener {
             }
           },
           onUpgrade: (sqflite.Database database, int from, int to) async {
-            for (final String statement in PaperSchema.migrations) {
-              await database.execute(statement);
+            // Explicit, additive, version-guarded migrations. Never drop or
+            // recreate a table: progress, bookmarks, notes and tasks predate
+            // EPUB support and must survive every upgrade.
+            if (from < 2 && to >= 2) {
+              for (final String statement in PaperSchema.migrateV1ToV2) {
+                await database.execute(statement);
+              }
             }
           },
         ),

@@ -83,11 +83,14 @@ class SystemDocumentImportService implements DocumentImportService {
           'Save it to your Downloads folder first, then import it again.',
         );
       }
+      final String? identifier = file.identifier;
       return PickedFile(
         path: path,
-        name: p.basename(path),
+        name: file.name.trim().isNotEmpty ? file.name : p.basename(path),
         byteSize: file.size,
-        sourceUri: path.startsWith('content://') ? path : null,
+        sourceUri: identifier != null && identifier.isNotEmpty
+            ? identifier
+            : (path.startsWith('content://') ? path : null),
       );
     } on PaperException {
       rethrow;

@@ -27,10 +27,18 @@ CREATE TABLE documents (
   is_favorite    INTEGER NOT NULL DEFAULT 0,
   last_page      INTEGER,
   last_fraction  REAL,
+  last_locator   TEXT,
   max_page       INTEGER,
   added_at       INTEGER NOT NULL,
   last_opened_at INTEGER,
-  opened_seconds INTEGER NOT NULL DEFAULT 0
+  opened_seconds INTEGER NOT NULL DEFAULT 0,
+  author         TEXT,
+  publisher      TEXT,
+  language       TEXT,
+  identifier     TEXT,
+  description    TEXT,
+  cover_path     TEXT,
+  fingerprint    TEXT
 );
 ''';
 
@@ -40,19 +48,24 @@ CREATE TABLE documents (
     'CREATE INDEX idx_documents_favorite ON documents (is_favorite, last_opened_at DESC)',
     'CREATE INDEX idx_documents_format ON documents (format)',
     'CREATE INDEX idx_documents_source ON documents (source_uri)',
+    'CREATE INDEX idx_documents_fingerprint ON documents (fingerprint)',
   ];
 
   /// `page` is -1 for continuous documents (text); `fraction` then carries a
-  /// 0..1 position through the document instead.
+  /// 0..1 position through the document instead. `locator` is an optional
+  /// format-native anchor (currently the EPUB spine/character locator) that is
+  /// more stable than either when typography changes.
   static const String createBookmarks = '''
 CREATE TABLE bookmarks (
-  id          TEXT PRIMARY KEY,
-  document_id TEXT NOT NULL REFERENCES documents (id) ON DELETE CASCADE,
-  page        INTEGER NOT NULL DEFAULT -1,
-  fraction    REAL NOT NULL DEFAULT -1,
-  label       TEXT,
-  excerpt     TEXT,
-  created_at  INTEGER NOT NULL
+  id            TEXT PRIMARY KEY,
+  document_id   TEXT NOT NULL REFERENCES documents (id) ON DELETE CASCADE,
+  page          INTEGER NOT NULL DEFAULT -1,
+  fraction      REAL NOT NULL DEFAULT -1,
+  label         TEXT,
+  excerpt       TEXT,
+  locator       TEXT,
+  chapter_title TEXT,
+  created_at    INTEGER NOT NULL
 );
 ''';
 
@@ -105,5 +118,54 @@ CREATE TABLE locations (
 );
 ''';
 
-  static const List<String> migrations = <String>[];
+  /// A highlight, underline or attached note anchored to a passage.
+  ///
+  /// Locators are chapter-relative character anchors (`epub:spine=2;char=120`)
+  /// rather than offsets into the paginated text. Re-pagination, a new font or
+  /// a different screen width therefore cannot silently move a highlight to a
+  /// different paragraph. `orphaned` keeps an annotation recoverable when a
+  /// future parser cannot resolve its chapter or the passage has changed.
+  static const String createAnnotations = '''
+CREATE TABLE annotations (
+  id            TEXT PRIMARY KEY,
+  document_id   TEXT NOT NULL REFERENCES documents (id) ON DELETE CASCADE,
+  kind          TEXT NOT NULL,
+  start_locator TEXT NOT NULL,
+  end_locator   TEXT NOT NULL,
+  chapter_index INTEGER,
+  chapter_title TEXT,
+  excerpt       TEXT NOT NULL,
+  note          TEXT,
+  orphaned      INTEGER NOT NULL DEFAULT 0,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+);
+''';
+
+  static const List<String> indexesAnnotations = <String>[
+    'CREATE INDEX idx_annotations_document'
+        ' ON annotations (document_id, chapter_index, created_at)',
+    'CREATE INDEX idx_annotations_updated'
+        ' ON annotations (document_id, updated_at DESC)',
+  ];
+
+  /// Additive migration from schema 1. Every statement is safe to run once
+  /// inside the upgrade transaction; SQLite rolls the whole batch back if a
+  /// statement fails, so a half-migrated library cannot be opened.
+  static const List<String> migrateV1ToV2 = <String>[
+    'ALTER TABLE documents ADD COLUMN last_locator TEXT',
+    'ALTER TABLE documents ADD COLUMN author TEXT',
+    'ALTER TABLE documents ADD COLUMN publisher TEXT',
+    'ALTER TABLE documents ADD COLUMN language TEXT',
+    'ALTER TABLE documents ADD COLUMN identifier TEXT',
+    'ALTER TABLE documents ADD COLUMN description TEXT',
+    'ALTER TABLE documents ADD COLUMN cover_path TEXT',
+    'ALTER TABLE documents ADD COLUMN fingerprint TEXT',
+    'CREATE INDEX IF NOT EXISTS idx_documents_fingerprint'
+        ' ON documents (fingerprint)',
+    'ALTER TABLE bookmarks ADD COLUMN locator TEXT',
+    'ALTER TABLE bookmarks ADD COLUMN chapter_title TEXT',
+    createAnnotations,
+    ...indexesAnnotations,
+  ];
 }
