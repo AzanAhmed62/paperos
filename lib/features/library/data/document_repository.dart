@@ -21,6 +21,10 @@ class DocumentRepository {
 
   Stream<void> get changes => _changes.stream;
 
+  /// Tells watchers that rows changed outside this repository, as a restore
+  /// does when it replaces tables in one transaction.
+  void notifyChanged() => _notify();
+
   void _notify() {
     if (!_changes.isClosed) _changes.add(null);
   }

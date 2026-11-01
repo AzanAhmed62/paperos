@@ -2,7 +2,7 @@ name: paperos
 description: "PaperOS — a quiet, reading-first Android environment built on digital-paper principles."
 publish_to: 'none'
 
-version: 1.1.0+2
+version: 1.2.0+3
 
 environment:
   sdk: ^3.13.0

@@ -11,6 +11,13 @@ abstract final class PaperConfig {
   /// Shown in the Android launcher and in Settings.
   static const String appName = 'PaperOS';
 
+  /// Release version. Kept in sync with `pubspec.yaml`; shown in Settings and
+  /// written into backup manifests so a future version can be diagnosed.
+  static const String appVersion = '1.2.0';
+  static const int appBuildNumber = 3;
+
+  static String get versionLabel => '$appVersion ($appBuildNumber)';
+
   /// Database file name inside the app databases directory.
   static const String databaseName = 'paperos.db';
 
@@ -67,4 +74,26 @@ abstract final class PaperConfig {
 
   /// Maximum rows in the app drawer before the list virtualises beyond this.
   static const int appDrawerPageSize = 400;
+
+  /// Backup format written by PaperOS 1.2. `.paperosbackup` is an ordinary ZIP
+  /// with a manifest, checksums and app-private attachments. No archive
+  /// encryption is used, so the file is exactly as private as where the user
+  /// saves it.
+  static const String backupFormat = 'paperos.backup';
+  static const int backupFormatVersion = 1;
+  static const String backupExtension = '.paperosbackup';
+
+  /// Restore refuses an archive that declares more entries or bytes than this.
+  /// The limits are high enough for a full library of large PDFs, but stop a
+  /// false ZIP header from filling the device.
+  static const int maxBackupEntries = 20050;
+  static const int maxBackupUncompressedBytes = 8 * 1024 * 1024 * 1024;
+  static const int maxBackupEntryBytes = maxImportBytes + 16 * 1024 * 1024;
+  static const int maxBackupJsonBytes = 64 * 1024 * 1024;
+  static const int maxBackupManifestBytes = 4 * 1024 * 1024;
+  static const int maxBackupDocuments = 10000;
+
+  /// How many safety snapshots to retain. The newest is kept even when older
+  /// ones are pruned, so a successful restore never leaves no way back.
+  static const int maxSafetyBackups = 3;
 }

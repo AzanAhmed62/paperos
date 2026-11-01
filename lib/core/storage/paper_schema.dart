@@ -149,6 +149,149 @@ CREATE TABLE annotations (
         ' ON annotations (document_id, updated_at DESC)',
   ];
 
+  /// Backup order: parents before children for insert, reverse for delete.
+  static const List<String> backupTables = <String>[
+    'documents',
+    'bookmarks',
+    'annotations',
+    'notes',
+    'tasks',
+    'locations',
+  ];
+
+  /// Columns accepted from a backup's JSON. Keeping this explicit means an
+  /// unknown or future column is refused instead of silently passed to SQLite.
+  static const Map<String, List<String>> backupColumns = <String, List<String>>{
+    'documents': <String>[
+      'id',
+      'local_path',
+      'source_uri',
+      'source_name',
+      'title',
+      'format',
+      'byte_size',
+      'page_count',
+      'status',
+      'is_favorite',
+      'last_page',
+      'last_fraction',
+      'last_locator',
+      'max_page',
+      'added_at',
+      'last_opened_at',
+      'opened_seconds',
+      'author',
+      'publisher',
+      'language',
+      'identifier',
+      'description',
+      'cover_path',
+      'fingerprint',
+    ],
+    'bookmarks': <String>[
+      'id',
+      'document_id',
+      'page',
+      'fraction',
+      'label',
+      'excerpt',
+      'locator',
+      'chapter_title',
+      'created_at',
+    ],
+    'annotations': <String>[
+      'id',
+      'document_id',
+      'kind',
+      'start_locator',
+      'end_locator',
+      'chapter_index',
+      'chapter_title',
+      'excerpt',
+      'note',
+      'orphaned',
+      'created_at',
+      'updated_at',
+    ],
+    'notes': <String>[
+      'id',
+      'title',
+      'body',
+      'created_at',
+      'updated_at',
+    ],
+    'tasks': <String>[
+      'id',
+      'title',
+      'is_done',
+      'due_date',
+      'created_at',
+      'completed_at',
+    ],
+    'locations': <String>[
+      'id',
+      'label',
+      'path',
+      'is_system',
+      'added_at',
+    ],
+  };
+
+  /// Non-null columns, checked before a restore touches the live database.
+  static const Map<String, List<String>> requiredColumns =
+      <String, List<String>>{
+        'documents': <String>[
+          'id',
+          'local_path',
+          'source_name',
+          'title',
+          'format',
+          'byte_size',
+          'status',
+          'is_favorite',
+          'added_at',
+          'opened_seconds',
+        ],
+        'bookmarks': <String>[
+          'id',
+          'document_id',
+          'page',
+          'fraction',
+          'created_at',
+        ],
+        'annotations': <String>[
+          'id',
+          'document_id',
+          'kind',
+          'start_locator',
+          'end_locator',
+          'excerpt',
+          'orphaned',
+          'created_at',
+          'updated_at',
+        ],
+        'notes': <String>[
+          'id',
+          'title',
+          'body',
+          'created_at',
+          'updated_at',
+        ],
+        'tasks': <String>[
+          'id',
+          'title',
+          'is_done',
+          'created_at',
+        ],
+        'locations': <String>[
+          'id',
+          'label',
+          'path',
+          'is_system',
+          'added_at',
+        ],
+      };
+
   /// Additive migration from schema 1. Every statement is safe to run once
   /// inside the upgrade transaction; SQLite rolls the whole batch back if a
   /// statement fails, so a half-migrated library cannot be opened.

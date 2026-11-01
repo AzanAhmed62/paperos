@@ -50,6 +50,7 @@ app.*.map.json
 /android/.cxx/
 
 # Signing material must never be committed
+key.properties
 *.jks
 *.keystore
 *.p12

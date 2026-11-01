@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/display/display_policy.dart';
 import '../../theme/paper_palette.dart';
 import '../../theme/paper_space.dart';
 import '../../theme/paper_typography.dart';
@@ -262,6 +263,7 @@ class PaperButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final PaperPalette palette = paperPalette(context);
     final PaperTypography type = PaperTypography.of(context);
+    final DisplayPolicy display = DisplayPolicyScope.of(context);
     final bool enabled = onPressed != null;
     final Color foreground = emphasised
         ? palette.inverseInk
@@ -295,7 +297,9 @@ class PaperButton extends StatelessWidget {
           onTap: onPressed,
           splashFactory: NoSplash.splashFactory,
           child: Container(
-            constraints: const BoxConstraints(minHeight: 44),
+            constraints: BoxConstraints(
+              minHeight: display.largeTargets ? 48 : 44,
+            ),
             padding: const EdgeInsets.symmetric(
               horizontal: PaperSpace.lg,
               vertical: PaperSpace.sm + PaperSpace.xs,
@@ -330,6 +334,7 @@ class PaperChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final PaperPalette palette = paperPalette(context);
     final PaperTypography type = PaperTypography.of(context);
+    final DisplayPolicy display = DisplayPolicyScope.of(context);
     final Color foreground = selected ? palette.inverseInk : palette.inkMuted;
 
     return Semantics(
@@ -339,10 +344,12 @@ class PaperChip extends StatelessWidget {
         onTap: onTap,
         splashFactory: NoSplash.splashFactory,
         child: Container(
-          constraints: const BoxConstraints(minHeight: 32),
-          padding: const EdgeInsets.symmetric(
+          constraints: BoxConstraints(
+            minHeight: display.largeTargets ? 40 : 32,
+          ),
+          padding: EdgeInsets.symmetric(
             horizontal: PaperSpace.md,
-            vertical: PaperSpace.xs + PaperSpace.xs,
+            vertical: display.largeTargets ? PaperSpace.sm : PaperSpace.xs * 2,
           ),
           decoration: BoxDecoration(
             color: selected ? palette.inverseCanvas : Colors.transparent,
@@ -435,6 +442,7 @@ class PaperLoading extends StatelessWidget {
   Widget build(BuildContext context) {
     final PaperPalette palette = paperPalette(context);
     final PaperTypography type = PaperTypography.of(context);
+    final DisplayPolicy display = DisplayPolicyScope.of(context);
 
     return Center(
       child: Column(
@@ -446,6 +454,9 @@ class PaperLoading extends StatelessWidget {
             child: CircularProgressIndicator(
               strokeWidth: 1.5,
               backgroundColor: palette.rule,
+              // An indeterminate spinner repaints forever. In the E-Ink
+              // profile use a static quarter ring instead.
+              value: display.reduceMotion ? 0.25 : null,
               valueColor: AlwaysStoppedAnimation<Color>(palette.ink),
             ),
           ),
@@ -795,6 +806,7 @@ class PaperStepper extends StatelessWidget {
   Widget build(BuildContext context) {
     final PaperPalette palette = paperPalette(context);
     final PaperTypography type = PaperTypography.of(context);
+    final DisplayPolicy displayPolicy = DisplayPolicyScope.of(context);
 
     return Semantics(
       label: label,
@@ -812,6 +824,7 @@ class PaperStepper extends StatelessWidget {
               onTap: canDecrease ? onDecrease : null,
               tooltip: 'Decrease $label',
               palette: palette,
+              size: displayPolicy.largeTargets ? 48 : 36,
             ),
             SizedBox(
               width: 72,
@@ -830,6 +843,7 @@ class PaperStepper extends StatelessWidget {
               onTap: canIncrease ? onIncrease : null,
               tooltip: 'Increase $label',
               palette: palette,
+              size: displayPolicy.largeTargets ? 48 : 36,
             ),
           ],
         ),
@@ -844,12 +858,14 @@ class _StepButton extends StatelessWidget {
     required this.onTap,
     required this.tooltip,
     required this.palette,
+    required this.size,
   });
 
   final IconData icon;
   final VoidCallback? onTap;
   final String tooltip;
   final PaperPalette palette;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
@@ -860,8 +876,8 @@ class _StepButton extends StatelessWidget {
         onTap: onTap,
         splashFactory: NoSplash.splashFactory,
         child: Container(
-          width: 36,
-          height: 36,
+          width: size,
+          height: size,
           alignment: Alignment.center,
           decoration: BoxDecoration(border: Border.all(color: palette.rule)),
           child: Icon(

@@ -6,9 +6,12 @@ import '../core/platform/file_browser_service.dart';
 import '../core/platform/keep_awake_service.dart';
 import '../core/platform/launcher_service.dart';
 import '../core/platform/pdf_service.dart';
+import '../core/platform/saf_file_service.dart';
 import '../core/storage/app_database.dart';
 import '../core/storage/app_storage.dart';
+import '../features/annotations/data/annotation_export_service.dart';
 import '../features/annotations/data/annotation_repository.dart';
+import '../features/backup/data/backup_service.dart';
 import '../features/files/data/location_repository.dart';
 import '../features/library/data/bookmark_repository.dart';
 import '../features/library/data/document_repository.dart';
@@ -72,6 +75,14 @@ final annotationRepositoryProvider = Provider<AnnotationRepository>((Ref ref) {
   return repository;
 });
 
+final annotationExportServiceProvider = Provider<AnnotationExportService>(
+  (Ref ref) => AnnotationExportService(
+    documents: ref.watch(documentRepositoryProvider),
+    annotations: ref.watch(annotationRepositoryProvider),
+    bookmarks: ref.watch(bookmarkRepositoryProvider),
+  ),
+);
+
 final epubParserProvider = Provider<EpubParser>(
   (Ref ref) => const EpubParser(),
 );
@@ -110,6 +121,18 @@ final documentImportServiceProvider = Provider<DocumentImportService>(
 
 final fileBrowserServiceProvider = Provider<FileBrowserService>(
   (Ref ref) => const PlatformFileBrowserService(),
+);
+
+final safFileServiceProvider = Provider<SafFileService>(
+  (Ref ref) => const PlatformSafFileService(),
+);
+
+final backupServiceProvider = Provider<BackupService>(
+  (Ref ref) => BackupService(
+    database: ref.watch(appDatabaseProvider),
+    storage: ref.watch(appStorageProvider),
+    settings: ref.watch(settingsRepositoryProvider),
+  ),
 );
 
 final locationRepositoryProvider = Provider<LocationRepository>((Ref ref) {

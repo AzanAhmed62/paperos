@@ -14,8 +14,11 @@ abstract final class PaperTheme {
   static ThemeData build({
     required PaperStyle style,
     PaperTypeOptions typeOptions = const PaperTypeOptions(),
+    bool einkFriendly = false,
   }) {
-    final PaperPalette palette = PaperPalette.of(style);
+    final PaperPalette palette = einkFriendly
+        ? PaperPalette.of(style).highContrast()
+        : PaperPalette.of(style);
 
     final TextTheme textTheme = TextTheme(
       bodyLarge: TextStyle(fontFamily: null, fontSize: 15, color: palette.ink),
@@ -59,6 +62,7 @@ abstract final class PaperTheme {
       highlightColor: Colors.transparent,
       hoverColor: Colors.transparent,
       focusColor: Colors.transparent,
+      materialTapTargetSize: MaterialTapTargetSize.padded,
       dividerTheme: DividerThemeData(
         color: palette.rule,
         thickness: 1,
@@ -108,7 +112,7 @@ abstract final class PaperTheme {
           foregroundColor: palette.ink,
           backgroundColor: Colors.transparent,
           overlayColor: Colors.transparent,
-          minimumSize: const Size(0, 44),
+          minimumSize: Size(0, einkFriendly ? 48 : 44),
           padding: const EdgeInsets.symmetric(horizontal: PaperSpace.sm),
           textStyle: const TextStyle(
             fontSize: 14,
@@ -121,7 +125,7 @@ abstract final class PaperTheme {
         style: IconButton.styleFrom(
           foregroundColor: palette.ink,
           overlayColor: Colors.transparent,
-          minimumSize: const Size(44, 44),
+          minimumSize: Size.square(einkFriendly ? 48 : 44),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
@@ -145,6 +149,7 @@ abstract final class PaperTheme {
       listTileTheme: ListTileThemeData(
         iconColor: palette.ink,
         textColor: palette.ink,
+        minVerticalPadding: einkFriendly ? 12 : 4,
         titleTextStyle: TextStyle(
           fontSize: 15.5,
           fontWeight: FontWeight.w600,

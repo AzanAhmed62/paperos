@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/app_config.dart';
+import '../core/display/display_policy.dart';
+import '../features/display/application/display_providers.dart';
 import '../features/files/application/external_open_controller.dart';
 import '../features/settings/application/settings_controller.dart';
 import '../features/settings/domain/app_settings.dart';
@@ -50,16 +52,20 @@ class _PaperAppState extends ConsumerState<PaperApp>
   @override
   Widget build(BuildContext context) {
     final AppSettings settings = ref.watch(settingsProvider);
+    final DisplayPolicy display = ref.watch(displayPolicyProvider);
 
     return MaterialApp.router(
       title: PaperConfig.appName,
       debugShowCheckedModeBanner: false,
+      themeAnimationDuration: display.navigationDuration,
+      themeAnimationCurve: Curves.linear,
       theme: PaperTheme.build(
         style: settings.appearance.style,
         typeOptions: PaperTypeOptions(
           scale: settings.appearance.textScale,
           serifReading: settings.appearance.serifReading,
         ),
+        einkFriendly: display.isEink,
       ),
       routerConfig: appRouter,
       builder: (BuildContext context, Widget? child) {
@@ -67,7 +73,23 @@ class _PaperAppState extends ConsumerState<PaperApp>
         // PaperOS applies exactly one scale of its own, from Settings: the
         // reading surface is paginated against a measured size, and two
         // independent scales would paginate it wrongly.
-        return child ?? const SizedBox.shrink();
+        //
+        // The display policy is exposed both as an inherited value (for small
+        // shared widgets) and as MediaQuery.disableAnimations (for framework
+        // routes and selection overlays). That makes "instant" apply to pushes,
+        // sheets and dialogs, not just the screens PaperOS draws itself.
+        final MediaQueryData media = MediaQuery.of(context);
+        Widget content = MediaQuery(
+          data: media.copyWith(
+            disableAnimations: display.reduceMotion,
+            highContrast: display.highContrast || media.highContrast,
+          ),
+          child: DisplayPolicyScope(
+            policy: display,
+            child: child ?? const SizedBox.shrink(),
+          ),
+        );
+        return content;
       },
     );
   }

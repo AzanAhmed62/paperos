@@ -11,6 +11,8 @@ import '../../../core/platform/pdf_service.dart';
 import '../../../core/utils/async_utils.dart';
 import '../../../theme/paper_typography.dart';
 import '../../annotations/domain/annotation.dart';
+import '../../display/application/display_providers.dart';
+import '../../display/application/reader_display_settings.dart';
 import '../../library/data/bookmark_repository.dart';
 import '../../library/data/document_repository.dart';
 import '../../library/domain/document.dart';
@@ -83,7 +85,7 @@ class ReaderSession extends AsyncNotifier<ReaderState> {
         .read(libraryServiceProvider)
         .verifyReadable(stored);
 
-    final ReaderSettings settings = ref.read(settingsProvider).reader;
+    final ReaderSettings settings = _effectiveSettings();
     final ReaderBackend backend = await _createBackend(document, settings);
     // Track the backend before any further await: if loading bookmarks or
     // annotations fails, the provider still has an error state, and its
@@ -247,6 +249,11 @@ class ReaderSession extends AsyncNotifier<ReaderState> {
 
   double _textHeight() => _viewport.height.clamp(120.0, 4000.0);
 
+  ReaderSettings _effectiveSettings() {
+    final ReaderSettings base = ref.read(settingsProvider).reader;
+    return readerSettingsForDisplay(base, ref.read(displayPolicyProvider));
+  }
+
   TextStyle _readingTextStyle(ReaderSettings settings) {
     return ReadingTextStyle.forReader(
       fontSizeScale: settings.fontSize,
@@ -290,7 +297,7 @@ class ReaderSession extends AsyncNotifier<ReaderState> {
     final String? keepLocator =
         current.scrollPosition?.locator ?? previous.currentLocator;
     final Duration carried = _elapsed();
-    final ReaderSettings settings = ref.read(settingsProvider).reader;
+    final ReaderSettings settings = _effectiveSettings();
 
     final ReaderBackend replacement;
     if (previous is EpubReaderBackend) {

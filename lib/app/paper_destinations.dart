@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/display/display_policy.dart';
 import '../shared/widgets/paper_widgets.dart';
 import '../theme/paper_palette.dart';
 import '../theme/paper_space.dart';
@@ -112,6 +113,7 @@ class _DestinationButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Color color = selected ? palette.inverseInk : palette.inkMuted;
+    final DisplayPolicy display = DisplayPolicyScope.of(context);
 
     return Semantics(
       button: true,
@@ -126,7 +128,9 @@ class _DestinationButton extends StatelessWidget {
             // The selection marker is a 2pt rule above the icon, the same
             // "inverted" language used by chips and the reader control bar.
             AnimatedContainer(
-              duration: const Duration(milliseconds: 140),
+              duration: display.reduceMotion
+                  ? Duration.zero
+                  : const Duration(milliseconds: 140),
               height: 2,
               width: selected ? 20 : 0,
               color: palette.inverseCanvas,

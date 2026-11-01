@@ -3,8 +3,9 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
-import '../data/settings_repository.dart';
+import '../../../core/display/display_profile.dart';
 import '../../../theme/paper_palette.dart';
+import '../data/settings_repository.dart';
 import '../domain/app_settings.dart';
 
 /// Holds [AppSettings] in memory and persists every change.
@@ -36,6 +37,16 @@ class SettingsController extends Notifier<AppSettings> {
       appearance: state.appearance.copyWith(serifReading: enabled),
     ),
   );
+
+  Future<void> setDisplayProfile(DisplayProfile profile) => _write(
+    state.copyWith(display: state.display.copyWith(profile: profile)),
+  );
+
+  /// Replaces in-memory state after a backup restore wrote the repository
+  /// directly. Every screen watching this provider updates immediately.
+  void reload() {
+    state = _repository.load();
+  }
 
   Future<void> setReaderFontSize(double size) =>
       _write(state.copyWith(reader: state.reader.copyWith(fontSize: size)));

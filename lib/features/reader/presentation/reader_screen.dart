@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/providers.dart';
 import '../../../config/app_config.dart';
+import '../../../core/display/display_policy.dart';
 import '../../../core/errors/paper_exception.dart';
 import '../../../core/platform/keep_awake_service.dart';
 import '../../../core/platform/pdf_service.dart';
@@ -12,7 +13,10 @@ import '../../../shared/widgets/paper_widgets.dart';
 import '../../../theme/paper_palette.dart';
 import '../../../theme/paper_space.dart';
 import '../../../theme/paper_typography.dart';
+import '../../annotations/data/annotation_export_service.dart';
 import '../../annotations/domain/annotation.dart';
+import '../../display/application/display_providers.dart';
+import '../../display/application/reader_display_settings.dart';
 import '../../library/domain/document.dart';
 import '../../settings/application/settings_controller.dart';
 import '../../settings/domain/app_settings.dart';
@@ -81,9 +85,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   /// Hides the chrome after a period of inactivity, and shows it again the
   /// moment the user touches the page.
-  void _armChromeTimer(bool chromeVisible) {
+  ///
+  /// The E-Ink profile deliberately does not auto-hide: leaving the controls
+  /// visible avoids a timed full-screen redraw removing them while the reader
+  /// is still deciding.
+  void _armChromeTimer(bool chromeVisible, [DisplayPolicy? policy]) {
     _chromeTimer?.cancel();
-    if (!chromeVisible) return;
+    final DisplayPolicy display =
+        policy ?? ref.read(displayPolicyProvider);
+    if (!chromeVisible || !display.autoHideReaderChrome) return;
     _chromeTimer = Timer(PaperConfig.readerChromeAutoHide, () {
       if (!mounted) return;
       _session.toggleChrome();
@@ -139,11 +149,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   Widget _buildReader(ReaderState state) {
     final PaperPalette palette = paperPalette(context);
-    final ReaderSettings settings = ref.watch(settingsProvider).reader;
-    final bool showNumbers = settings.showPageNumbers;
+    final DisplayPolicy display = ref.watch(displayPolicyProvider);
+    final ReaderSettings baseSettings = ref.watch(settingsProvider).reader;
+    final ReaderSettings settings = readerSettingsForDisplay(
+      baseSettings,
+      display,
+    );
+    final bool showNumbers = baseSettings.showPageNumbers;
 
-    _syncKeepAwake(settings.keepScreenOn);
-    _armChromeTimer(state.chromeVisible);
+    _syncKeepAwake(baseSettings.keepScreenOn);
+    _armChromeTimer(state.chromeVisible, display);
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle(
@@ -180,6 +195,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               onSearch: _showSearch,
               onAnnotations: _showAnnotations,
               onBookmarks: () => _showBookmarks(state),
+              onExportMarkdown: () =>
+                  _exportAnnotations(AnnotationExportFormat.markdown),
+              onExportJson: () =>
+                  _exportAnnotations(AnnotationExportFormat.json),
               onSettings: _showReadingSettings,
             ),
           ),
@@ -215,9 +234,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   void _onTapZone(Offset position, Size size) {
     _session.onInteraction();
     final double fraction = size.width <= 0 ? 0.5 : position.dx / size.width;
-    if (fraction < 0.3) {
+    final double zone = ref.read(displayPolicyProvider).pageTurnZoneFraction;
+    if (fraction < zone) {
       _turn(previous: true);
-    } else if (fraction > 0.7) {
+    } else if (fraction > 1 - zone) {
       _turn(previous: false);
     } else {
       _toggleChrome();
@@ -225,6 +245,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   void _onSwipe(DragEndDetails details) {
+    if (ref.read(displayPolicyProvider).forceTapPageTurns) return;
     final double velocity = details.primaryVelocity ?? 0;
     if (velocity.abs() < 180) return;
     _turn(previous: velocity > 0);
@@ -309,6 +330,23 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       builder: (BuildContext sheetContext) =>
           _AnnotationsSheet(documentId: widget.documentId),
     );
+  }
+
+  Future<void> _exportAnnotations(AnnotationExportFormat format) async {
+    try {
+      final String? saved = await ref
+          .read(annotationExportServiceProvider)
+          .export(widget.documentId, format);
+      if (!mounted || saved == null) return;
+      PaperToast.show(
+        context,
+        'Annotations exported as ${format.label}',
+        icon: Icons.ios_share_outlined,
+      );
+    } on PaperException catch (error) {
+      if (!mounted) return;
+      PaperToast.show(context, error.message, icon: Icons.error_outline);
+    }
   }
 
   /// Reading settings are edited in place: every change re-paginates the text
@@ -404,8 +442,12 @@ class _PageSurfaceState extends ConsumerState<_PageSurface> {
   @override
   Widget build(BuildContext context) {
     final ReaderState state = widget.state;
-    final PageTurnMode mode = widget.settings.turnMode;
+    final DisplayPolicy display = DisplayPolicyScope.of(context);
+    final PageTurnMode mode = display.forceTapPageTurns
+        ? PageTurnMode.tap
+        : widget.settings.turnMode;
     final bool scrolling =
+        !display.forcePagedReader &&
         state.backend is EpubReaderBackend &&
         widget.settings.flow == ReaderFlow.scroll;
     final EdgeInsets chromeInset = EdgeInsets.only(
@@ -1080,6 +1122,8 @@ class _ReaderTopBar extends StatelessWidget {
     required this.onSearch,
     required this.onAnnotations,
     required this.onBookmarks,
+    required this.onExportMarkdown,
+    required this.onExportJson,
     required this.onSettings,
   });
 
@@ -1091,6 +1135,8 @@ class _ReaderTopBar extends StatelessWidget {
   final VoidCallback onSearch;
   final VoidCallback onAnnotations;
   final VoidCallback onBookmarks;
+  final VoidCallback onExportMarkdown;
+  final VoidCallback onExportJson;
   final VoidCallback onSettings;
 
   @override
@@ -1157,6 +1203,12 @@ class _ReaderTopBar extends StatelessWidget {
                     case _ReaderMenuAction.annotations:
                       onAnnotations();
                       break;
+                    case _ReaderMenuAction.exportMarkdown:
+                      onExportMarkdown();
+                      break;
+                    case _ReaderMenuAction.exportJson:
+                      onExportJson();
+                      break;
                     case _ReaderMenuAction.settings:
                       onSettings();
                       break;
@@ -1188,6 +1240,20 @@ class _ReaderTopBar extends StatelessWidget {
                           ),
                         ),
                       const PopupMenuItem<_ReaderMenuAction>(
+                        value: _ReaderMenuAction.exportMarkdown,
+                        child: _MenuRow(
+                          icon: Icons.description_outlined,
+                          label: 'Export annotations (Markdown)',
+                        ),
+                      ),
+                      const PopupMenuItem<_ReaderMenuAction>(
+                        value: _ReaderMenuAction.exportJson,
+                        child: _MenuRow(
+                          icon: Icons.data_object,
+                          label: 'Export annotations (JSON)',
+                        ),
+                      ),
+                      const PopupMenuItem<_ReaderMenuAction>(
                         value: _ReaderMenuAction.settings,
                         child: _MenuRow(
                           icon: Icons.text_fields,
@@ -1205,7 +1271,14 @@ class _ReaderTopBar extends StatelessWidget {
   }
 }
 
-enum _ReaderMenuAction { toc, bookmarks, annotations, settings }
+enum _ReaderMenuAction {
+  toc,
+  bookmarks,
+  annotations,
+  exportMarkdown,
+  exportJson,
+  settings,
+}
 
 class _MenuRow extends StatelessWidget {
   const _MenuRow({required this.icon, required this.label});
@@ -1359,9 +1432,10 @@ class _AnimatedBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final DisplayPolicy display = DisplayPolicyScope.of(context);
     return AnimatedSlide(
       offset: visible ? Offset.zero : Offset(0, fromTop ? -1 : 1),
-      duration: const Duration(milliseconds: 140),
+      duration: display.chromeAnimationDuration,
       curve: Curves.easeOutCubic,
       child: child,
     );
@@ -2034,6 +2108,15 @@ class _ReadingSettingsSheet extends ConsumerWidget {
               'is drawn exactly as it was authored.',
               style: type.caption.copyWith(color: palette.inkFaint),
             ),
+            if (ref.watch(displayPolicyProvider).isEink) ...<Widget>[
+              const SizedBox(height: PaperSpace.xs),
+              Text(
+                'E-Ink Friendly is active: reading is page-only, tap zones are '
+                'wider, and text is slightly larger with stronger contrast. '
+                'Your stored choices are remembered for Standard.',
+                style: type.caption.copyWith(color: palette.inkFaint),
+              ),
+            ],
             const SizedBox(height: PaperSpace.lg),
           ],
         ),

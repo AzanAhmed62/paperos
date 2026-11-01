@@ -21,6 +21,7 @@ class MainActivity : FlutterActivity() {
     private var pdfRender: PdfRenderChannel? = null
     private var keepScreenOn: KeepScreenOnChannel? = null
     private var fileBrowser: FileBrowserChannel? = null
+    private var safFiles: SafFileChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -48,6 +49,11 @@ class MainActivity : FlutterActivity() {
             channel.setInitialIntent(intent)
             channel.attach(messenger)
         }
+
+        safFiles = SafFileChannel(this).also { channel ->
+            channel.setHostActivity(this)
+            channel.attach(messenger)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -58,7 +64,9 @@ class MainActivity : FlutterActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         // The folder picker owns one request code; everything else belongs to
         // the Flutter embedding (plugins) and must fall through to super.
-        if (fileBrowser?.onActivityResult(requestCode, resultCode, data) != true) {
+        val handledByBrowser = fileBrowser?.onActivityResult(requestCode, resultCode, data) == true
+        val handledBySaf = safFiles?.onActivityResult(requestCode, resultCode, data) == true
+        if (!handledByBrowser && !handledBySaf) {
             super.onActivityResult(requestCode, resultCode, data)
         }
     }
@@ -68,10 +76,12 @@ class MainActivity : FlutterActivity() {
         pdfRender?.dispose()
         keepScreenOn?.dispose()
         fileBrowser?.dispose()
+        safFiles?.dispose()
         appCatalog = null
         pdfRender = null
         keepScreenOn = null
         fileBrowser = null
+        safFiles = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 }

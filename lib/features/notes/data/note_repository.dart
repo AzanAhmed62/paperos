@@ -15,6 +15,8 @@ class NoteRepository {
 
   Stream<void> get changes => _changes.stream;
 
+  void notifyChanged() => _notify();
+
   void _notify() {
     if (!_changes.isClosed) _changes.add(null);
   }

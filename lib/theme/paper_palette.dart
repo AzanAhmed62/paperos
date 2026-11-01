@@ -132,4 +132,50 @@ class PaperPalette {
   };
 
   static PaperPalette of(PaperStyle style) => byStyle[style]!;
+
+  /// A stronger variant of this palette for the E-Ink Friendly profile.
+  ///
+  /// The paper and ink identity is preserved; only secondary text and hairlines
+  /// become darker so they survive a panel with fewer grey levels. Text
+  /// selection uses the same rule colour, which is why it is strengthened too.
+  PaperPalette highContrast() {
+    return switch (style) {
+      PaperStyle.white => const PaperPalette(
+        style: PaperStyle.white,
+        canvas: Color(0xFFFFFFFF),
+        raised: Color(0xFFFFFFFF),
+        ink: Color(0xFF000000),
+        inkMuted: Color(0xFF303030),
+        inkFaint: Color(0xFF565656),
+        rule: Color(0xFFB4B4B4),
+        ruleStrong: Color(0xFF000000),
+        inverseCanvas: Color(0xFF000000),
+        inverseInk: Color(0xFFFFFFFF),
+      ),
+      PaperStyle.warm => const PaperPalette(
+        style: PaperStyle.warm,
+        canvas: Color(0xFFF4EFE4),
+        raised: Color(0xFFFAF6EE),
+        ink: Color(0xFF000000),
+        inkMuted: Color(0xFF3B342A),
+        inkFaint: Color(0xFF62594C),
+        rule: Color(0xFFBBAF9A),
+        ruleStrong: Color(0xFF000000),
+        inverseCanvas: Color(0xFF17130F),
+        inverseInk: Color(0xFFF4EFE4),
+      ),
+      PaperStyle.ink => const PaperPalette(
+        style: PaperStyle.ink,
+        canvas: Color(0xFF000000),
+        raised: Color(0xFF101010),
+        ink: Color(0xFFFFFFFF),
+        inkMuted: Color(0xFFD2CFC8),
+        inkFaint: Color(0xFFA6A29A),
+        rule: Color(0xFF55524D),
+        ruleStrong: Color(0xFFBDB9B1),
+        inverseCanvas: Color(0xFFFFFFFF),
+        inverseInk: Color(0xFF000000),
+      ),
+    };
+  }
 }

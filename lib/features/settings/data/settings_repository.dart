@@ -18,23 +18,15 @@ class SettingsRepository {
 
   static const String settingsKey = 'paperos.settings.v1';
 
+  /// Bumped when the stored envelope changes. Version 2 added the display
+  /// profile; version 1 documents remain readable.
+  static const int documentVersion = 2;
+
   AppSettings load() {
     final String? raw = _preferences.getString(settingsKey);
     if (raw == null || raw.isEmpty) return const AppSettings.defaults();
     try {
-      final Object? decoded = jsonDecode(raw);
-      if (decoded is! Map<String, Object?>) {
-        return const AppSettings.defaults();
-      }
-      return AppSettings(
-        appearance: AppearanceSettings.fromJson(
-          _section(decoded, 'appearance'),
-        ),
-        reader: ReaderSettings.fromJson(_section(decoded, 'reader')),
-        launcher: LauncherSettings.fromJson(_section(decoded, 'launcher')),
-        home: HomeSettings.fromJson(_section(decoded, 'home')),
-        askOnExit: (decoded['askOnExit'] as bool?) ?? true,
-      );
+      return decode(raw);
     } catch (_) {
       // Persisted settings that no longer parse must not brick the app. Fall
       // back to defaults; the next write overwrites the bad payload.
@@ -42,33 +34,62 @@ class SettingsRepository {
     }
   }
 
-  static Map<String, Object?> _section(
-    Map<String, Object?> source,
-    String key,
-  ) {
-    final Object? value = source[key];
-    if (value is Map<String, Object?>) return value;
-    if (value is Map) return value.cast<String, Object?>();
-    return const <String, Object?>{};
+  /// Parses a settings envelope without silently falling back to defaults.
+  ///
+  /// Backup restore uses this so a corrupt `settings.json` aborts the restore
+  /// instead of replacing the user's preferences with defaults.
+  AppSettings decode(String raw) {
+    final Object? decoded = jsonDecode(raw);
+    if (decoded is! Map<String, Object?>) {
+      throw const FormatException('Settings are not a JSON object.');
+    }
+    final Object? version = decoded['version'];
+    // Version 1 of the app wrote a bare settings object without an envelope.
+    // Those documents remain readable; a version that is present must be a
+    // supported integer. This is also what lets a legacy settings.json restore.
+    if (version != null &&
+        (version is! int || version < 1 || version > documentVersion)) {
+      throw FormatException('Unsupported settings version: $version');
+    }
+    return AppSettings.fromJson(decoded);
   }
 
+  String encode(AppSettings settings) => jsonEncode(_encode(settings));
+
+  /// Exact settings document used by backup. Kept as an envelope so restore
+  /// can distinguish a valid legacy document from arbitrary JSON.
+  String exportJson(AppSettings settings) => encode(settings);
+
   Map<String, Object?> _encode(AppSettings settings) => <String, Object?>{
-    'version': 1,
-    'appearance': settings.appearance.toJson(),
-    'reader': settings.reader.toJson(),
-    'launcher': settings.launcher.toJson(),
-    'home': settings.home.toJson(),
-    'askOnExit': settings.askOnExit,
+    'version': documentVersion,
+    ...settings.toJson(),
   };
 
   Future<void> save(AppSettings settings) async {
     try {
-      await _preferences.setString(settingsKey, jsonEncode(_encode(settings)));
+      await _preferences.setString(settingsKey, encode(settings));
     } catch (error) {
       throw PaperException.storage(
         'PaperOS could not save your settings.',
         cause: error,
       );
+    }
+  }
+
+  /// Validates and stores a settings document from a backup.
+  Future<void> importJson(String raw) async {
+    final AppSettings settings = decode(raw);
+    await save(settings);
+  }
+
+  /// The raw stored value, used only for rollback snapshots.
+  String? get rawValue => _preferences.getString(settingsKey);
+
+  Future<void> restoreRaw(String? raw) async {
+    if (raw == null) {
+      await _preferences.remove(settingsKey);
+    } else {
+      await _preferences.setString(settingsKey, raw);
     }
   }
 }

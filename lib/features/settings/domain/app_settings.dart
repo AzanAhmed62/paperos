@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../../../core/display/display_profile.dart';
 import '../../../theme/paper_palette.dart';
 
 /// Which block of Paper Home is visible.
@@ -266,6 +267,28 @@ class HomeSettings {
   }
 }
 
+/// Display-profile preference.
+@immutable
+class DisplaySettings {
+  const DisplaySettings({this.profile = DisplayProfile.standard});
+
+  final DisplayProfile profile;
+
+  DisplaySettings copyWith({DisplayProfile? profile}) {
+    return DisplaySettings(profile: profile ?? this.profile);
+  }
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'profile': profile.id,
+  };
+
+  static DisplaySettings fromJson(Map<String, Object?> json) {
+    return DisplaySettings(
+      profile: DisplayProfile.fromId(json['profile'] as String?),
+    );
+  }
+}
+
 /// Root settings value.
 @immutable
 class AppSettings {
@@ -274,6 +297,7 @@ class AppSettings {
     this.reader = const ReaderSettings(),
     this.launcher = const LauncherSettings(),
     this.home = const HomeSettings(),
+    this.display = const DisplaySettings(),
     this.askOnExit = true,
   });
 
@@ -281,6 +305,7 @@ class AppSettings {
   final ReaderSettings reader;
   final LauncherSettings launcher;
   final HomeSettings home;
+  final DisplaySettings display;
 
   /// Confirm before leaving a modified note or document deletion. Every
   /// destructive action in PaperOS asks; nothing deletes silently.
@@ -291,6 +316,7 @@ class AppSettings {
       reader = const ReaderSettings(),
       launcher = const LauncherSettings(),
       home = const HomeSettings(),
+      display = const DisplaySettings(),
       askOnExit = true;
 
   AppSettings copyWith({
@@ -298,6 +324,7 @@ class AppSettings {
     ReaderSettings? reader,
     LauncherSettings? launcher,
     HomeSettings? home,
+    DisplaySettings? display,
     bool? askOnExit,
   }) {
     return AppSettings(
@@ -305,7 +332,39 @@ class AppSettings {
       reader: reader ?? this.reader,
       launcher: launcher ?? this.launcher,
       home: home ?? this.home,
+      display: display ?? this.display,
       askOnExit: askOnExit ?? this.askOnExit,
+    );
+  }
+
+  /// The settings document stored locally and inside a `.paperosbackup`.
+  ///
+  /// Unknown future fields are not preserved here; backups declare the exact
+  /// schema they were produced by, and an unknown newer schema is refused.
+  Map<String, Object?> toJson() => <String, Object?>{
+    'appearance': appearance.toJson(),
+    'reader': reader.toJson(),
+    'launcher': launcher.toJson(),
+    'home': home.toJson(),
+    'display': display.toJson(),
+    'askOnExit': askOnExit,
+  };
+
+  static AppSettings fromJson(Map<String, Object?> json) {
+    Map<String, Object?> section(String key) {
+      final Object? value = json[key];
+      if (value is Map<String, Object?>) return value;
+      if (value is Map) return value.cast<String, Object?>();
+      return const <String, Object?>{};
+    }
+
+    return AppSettings(
+      appearance: AppearanceSettings.fromJson(section('appearance')),
+      reader: ReaderSettings.fromJson(section('reader')),
+      launcher: LauncherSettings.fromJson(section('launcher')),
+      home: HomeSettings.fromJson(section('home')),
+      display: DisplaySettings.fromJson(section('display')),
+      askOnExit: (json['askOnExit'] as bool?) ?? true,
     );
   }
 }

@@ -5,9 +5,12 @@ environment. It is not an operating-system replacement: it can be selected as an
 Android Home app, but it still runs inside Android and keeps using the platform
 for file access, PDF rendering, app launching, and keep-screen-on.
 
-This document describes the v1.1 architecture. The reader-engine choice and its
+This document describes the v1.2 architecture. The reader-engine choice and its
 trade-offs are recorded separately in
-[`reader-engine-decision.md`](reader-engine-decision.md).
+[`reader-engine-decision.md`](reader-engine-decision.md). Backup formats and
+restore safety are documented in [`backup-format.md`](backup-format.md) and
+[`backup-restore.md`](backup-restore.md). Display profiles are documented in
+[`eink-profile.md`](eink-profile.md).
 
 ## Design constraints
 
@@ -49,12 +52,16 @@ lib/
   app/          bootstrap, router, destination shell, dependency wiring
   config/       file-size limits, database version, timing constants
   core/
+    display/    display profile, policy, capability service, clock cadence
     errors/     PaperException and user-facing error kinds
-    platform/   native bridges: SAF/files, PDF, app catalog, keep-awake
+    platform/   native bridges: SAF/files, PDF, app catalog, keep-awake,
+                streaming backup document I/O
     storage/    SQLite schema/opener, app-private directories
     utils/      ids, dates, formatting, streaming fingerprint
   features/
     annotations/  annotation model, repository, providers
+    backup/       archive validation, backup/restore service, SAF controller
+    display/      Riverpod display policy provider and reader adjustments
     home/         paper home and section settings
     library/      import, probes, metadata, filters, library UI
     reader/       reader session/UI + PDF, text and EPUB backends
@@ -81,6 +88,8 @@ I/O, `application/` owns Riverpod state, and `presentation/` owns widgets.
 | `shared_preferences` | appearance, reader preferences, Home sections, launcher settings, trusted folder metadata | `SettingsRepository` |
 | App documents directory | imported originals and generated EPUB covers | `AppStorage` and `LibraryService` |
 | App trash directory | files awaiting removal | `AppStorage` / `LibraryService` |
+| Backup staging directory | temporary archive files and extracted restore data | `BackupService` and `BackupArchive` |
+| Safety-backup directory | newest three pre-restore archives | `BackupService` |
 
 Settings are deliberately separate from SQLite: changing the theme must not
 require opening the content database.
@@ -219,6 +228,49 @@ The Home screen reuses the same document repository for the last-read and recent
 sections. It does not maintain a second index, so a rename or progress update is
 visible everywhere.
 
+## Backup and restore
+
+`BackupService` is the single backup path. It does not copy `paperos.db` while
+the app is running: it reads every table inside one SQLite transaction and
+serialises rows as JSON. Attachments are streamed into the ZIP and hashed. This
+avoids a torn database with a hot journal and keeps books as files.
+
+`BackupArchive` treats the archive as untrusted. It checks the ZIP directory
+before extraction, rejects unsafe names and unsupported entries, verifies
+`manifest.sha256`, extracts to flat private staging names, and checks each
+payload's declared size and SHA-256. `BackupService` then parses `database.json`,
+validates rows and relationships, builds a fresh real SQLite database at schema
+2, runs foreign-key and integrity checks, and only then touches live data.
+
+Restore is full replacement. A safety snapshot is written first. Attachments are
+copied to new unique names, settings are imported, and all six tables are
+replaced inside one SQLite transaction. A failure rolls back settings and removes
+newly copied files. Old files are moved to app trash after the commit. The
+cross-store settings/database window is documented in
+[`backup-restore.md`](backup-restore.md).
+
+SAF save and open use a small native streaming channel
+(`dev.paperos/saf`) because `file_picker` buffers saved bytes in memory. The
+channel owns only the document URI chosen by the system picker; it requests no
+storage permission. Dart-side annotation export still uses `file_picker`, where
+the payload is bounded by the annotation text, not the whole library.
+
+## Display profiles
+
+`DisplayProfile` is a persisted user preference (`standard` or `eink`).
+`DisplayCapabilityService` is the only seam for optional hardware capabilities;
+the shipped `ConservativeDisplayCapabilityService` reports no E-Ink panel and no
+hardware refresh. `DisplayPolicy` derives motion, contrast, target size, clock
+cadence, reader flow, page-turn mode, selection opacity and typography from the
+profile plus those capabilities.
+
+`PaperApp` publishes the policy through `DisplayPolicyScope`, applies the
+high-contrast palette and `MediaQuery.disableAnimations`, and the Home clock
+schedules a one-shot timer via `nextClockDelay`. Reader settings are adjusted on
+a render-time copy; stored values are never overwritten. No vendor refresh API
+is called, and no undocumented broadcast is used. See
+[`eink-profile.md`](eink-profile.md).
+
 ## Security and privacy boundaries
 
 - No `INTERNET` permission in the release manifest.
@@ -230,6 +282,12 @@ visible everywhere.
 - Archive expansion is bounded before extraction.
 - Provider-supplied file names are sanitised before cache files are created.
 - SQLite queries use bound parameters.
+- Backup archives are untrusted input: paths are never joined directly to the
+  filesystem, entries and sizes are bounded, and rows/relationships are
+  validated before replacement.
+- Backups are unencrypted and unsigned. Their checksums detect corruption, not
+  authorship; a wrong password cannot silently produce a damaged library because
+  there is no password feature.
 - The app does not claim to be a browser, a DRM client, or an EPUB conformance
   renderer.
 
@@ -248,7 +306,9 @@ The migration path is explicit and additive. See
 
 The automated suite runs against the real SQLite engine and exercises the parser,
 pagination, locator restore, annotation ranges, import deduplication, migration,
-and real widget surfaces. It does not prove Android runtime behaviour. SAF
-picker interaction, native PDF rasterisation, EPUB selection handles, e-ink
-refresh, Home-role selection, and app launching remain device checks. The manual
-checklist is in [`manual-testing.md`](manual-testing.md).
+backup/restore validation, annotation export, display policy and real widget
+surfaces. It does not prove Android runtime behaviour. SAF picker interaction,
+native PDF rasterisation, EPUB selection handles, backup through a real document
+provider, e-ink appearance, Home-role selection, app launching, and release
+signing remain device checks. The manual checklist is in
+[`manual-testing.md`](manual-testing.md).

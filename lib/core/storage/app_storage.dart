@@ -69,6 +69,14 @@ class AppStorage {
 
   Future<Directory> trash() => ensure('trash');
 
+  /// Private work area for archives being written, inspected or restored.
+  /// Everything here is disposable after a failure.
+  Future<Directory> backupStaging() => ensure('backup-staging');
+
+  /// Safety snapshots are kept in app-private storage and never exposed to
+  /// the user as ordinary files.
+  Future<Directory> safetyBackups() => ensure('safety');
+
   /// Human readable summary of how much space PaperOS is using.
   Future<StorageUsage> usage() async {
     final Directory libraryDir = await library();

@@ -42,30 +42,8 @@ class AppDatabaseOpener {
             // Bookmarks belong to documents and must disappear with them.
             await database.execute('PRAGMA foreign_keys = ON');
           },
-          onCreate: (sqflite.Database database, int version) async {
-            for (final Map<String, Object?> bundle in [
-              _bundle(
-                PaperSchema.createDocuments,
-                PaperSchema.indexesDocuments,
-              ),
-              _bundle(
-                PaperSchema.createBookmarks,
-                PaperSchema.indexesBookmarks,
-              ),
-              _bundle(PaperSchema.createNotes, PaperSchema.indexesNotes),
-              _bundle(PaperSchema.createTasks, PaperSchema.indexesTasks),
-              _bundle(PaperSchema.createLocations, const <String>[]),
-              _bundle(
-                PaperSchema.createAnnotations,
-                PaperSchema.indexesAnnotations,
-              ),
-            ]) {
-              await database.execute(bundle['sql']! as String);
-              for (final Object? index in bundle['indexes']! as List<Object?>) {
-                await database.execute(index! as String);
-              }
-            }
-          },
+          onCreate: (sqflite.Database database, int version) =>
+              createSchema(database),
           onUpgrade: (sqflite.Database database, int from, int to) async {
             // Explicit, additive, version-guarded migrations. Never drop or
             // recreate a table: progress, bookmarks, notes and tasks predate
@@ -90,6 +68,26 @@ class AppDatabaseOpener {
       );
     } finally {
       _opening = null;
+    }
+  }
+
+  /// Creates the complete schema on an empty database.
+  ///
+  /// Shared with backup restore so a staging database is created by exactly
+  /// the same DDL as the live one, never a hand-written approximation.
+  static Future<void> createSchema(sqflite.Database database) async {
+    for (final Map<String, Object?> bundle in [
+      _bundle(PaperSchema.createDocuments, PaperSchema.indexesDocuments),
+      _bundle(PaperSchema.createBookmarks, PaperSchema.indexesBookmarks),
+      _bundle(PaperSchema.createNotes, PaperSchema.indexesNotes),
+      _bundle(PaperSchema.createTasks, PaperSchema.indexesTasks),
+      _bundle(PaperSchema.createLocations, const <String>[]),
+      _bundle(PaperSchema.createAnnotations, PaperSchema.indexesAnnotations),
+    ]) {
+      await database.execute(bundle['sql']! as String);
+      for (final Object? index in bundle['indexes']! as List<Object?>) {
+        await database.execute(index! as String);
+      }
     }
   }
 

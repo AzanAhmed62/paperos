@@ -6,10 +6,13 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
 import '../../../app/router.dart';
+import '../../../core/display/clock_tick.dart';
+import '../../../core/display/display_profile.dart';
 import '../../../core/errors/paper_exception.dart';
 import '../../../core/platform/installed_app.dart';
 import '../../../core/platform/launcher_service.dart';
 import '../../../core/utils/date_format.dart';
+import '../../../features/display/application/display_providers.dart';
 import '../../../features/launcher/application/launcher_providers.dart';
 import '../../../features/library/application/library_providers.dart';
 import '../../../features/library/data/library_service.dart';
@@ -96,39 +99,75 @@ class _HomeHeader extends StatelessWidget {
   }
 }
 
-/// A live clock, ticking once a second.
+/// A live clock whose cadence follows the display profile.
 ///
-/// The date line is a separate widget from the time line so that the seconds
-/// tick re-lays-out one short string instead of the whole header.
-class _ClockBlock extends StatefulWidget {
+/// Standard rebuilds once a second, as before. E-Ink Friendly aligns a single
+/// one-shot timer to the next minute boundary, so an idle home screen is not
+/// repainting sixty times for a value that only changes every sixty seconds.
+class _ClockBlock extends ConsumerStatefulWidget {
   const _ClockBlock();
 
   @override
-  State<_ClockBlock> createState() => _ClockBlockState();
+  ConsumerState<_ClockBlock> createState() => _ClockBlockState();
 }
 
-class _ClockBlockState extends State<_ClockBlock> {
+class _ClockBlockState extends ConsumerState<_ClockBlock>
+    with WidgetsBindingObserver {
   DateTime _now = DateTime.now();
   Timer? _timer;
+  bool _minuteAligned = false;
 
   @override
   void initState() {
     super.initState();
-    _timer = Timer.periodic(const Duration(seconds: 1), (Timer _) {
-      if (!mounted) return;
-      setState(() => _now = DateTime.now());
-    });
+    WidgetsBinding.instance.addObserver(this);
+    _schedule(ref.read(displayPolicyProvider).alignClockToMinute);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     super.dispose();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      setState(() => _now = DateTime.now());
+      _schedule(ref.read(displayPolicyProvider).alignClockToMinute);
+    } else if (state == AppLifecycleState.paused) {
+      _timer?.cancel();
+      _timer = null;
+    }
+  }
+
+  void _schedule(bool minuteAligned) {
+    _timer?.cancel();
+    _minuteAligned = minuteAligned;
+    final DisplayProfile profile = minuteAligned
+        ? DisplayProfile.eink
+        : DisplayProfile.standard;
+    _timer = Timer(nextClockDelay(DateTime.now(), profile), () {
+      if (!mounted) return;
+      setState(() => _now = DateTime.now());
+      _schedule(minuteAligned);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final PaperTypography type = PaperTypography.of(context);
+    final bool minuteAligned = ref
+        .watch(displayPolicyProvider)
+        .alignClockToMinute;
+    if (minuteAligned != _minuteAligned) {
+      // A profile change can arrive during build. Arm the new cadence after
+      // this frame so a timer is never created while the tree is locked.
+      WidgetsBinding.instance.addPostFrameCallback((Duration _) {
+        if (mounted) _schedule(minuteAligned);
+      });
+    }
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(

@@ -3,12 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
 import '../../../config/app_config.dart';
+import '../../../core/display/display_profile.dart';
 import '../../../core/errors/paper_exception.dart';
 import '../../../core/platform/installed_app.dart';
 import '../../../shared/widgets/paper_widgets.dart';
 import '../../../theme/paper_palette.dart';
 import '../../../theme/paper_space.dart';
 import '../../../theme/paper_typography.dart';
+import '../../backup/presentation/backup_section.dart';
+import '../../display/application/display_providers.dart';
 import '../../launcher/application/launcher_providers.dart';
 import '../../settings/application/settings_controller.dart';
 import '../../settings/domain/app_settings.dart';
@@ -100,6 +103,7 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ],
           ),
+          const _DisplaySection(),
           _Section(
             title: 'Reading',
             children: <Widget>[
@@ -195,10 +199,75 @@ class SettingsScreen extends ConsumerWidget {
               const _FavouritesEditor(),
             ],
           ),
+          const BackupSection(),
           const _StorageSection(),
           const _AboutSection(),
         ],
       ),
+    );
+  }
+}
+
+class _DisplaySection extends ConsumerWidget {
+  const _DisplaySection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final PaperTypography type = PaperTypography.of(context);
+    final AppSettings settings = ref.watch(settingsProvider);
+    final SettingsController controller = ref.read(settingsProvider.notifier);
+    final DisplayProfile profile = settings.display.profile;
+    final policy = ref.watch(displayPolicyProvider);
+
+    return _Section(
+      title: 'Display',
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            PaperSpace.gutter,
+            PaperSpace.md,
+            PaperSpace.gutter,
+            PaperSpace.sm,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text('Display profile', style: type.body),
+              const SizedBox(height: PaperSpace.xs),
+              Text(policy.description, style: type.caption),
+              const SizedBox(height: PaperSpace.sm),
+              Wrap(
+                spacing: PaperSpace.sm,
+                runSpacing: PaperSpace.xs,
+                children: <Widget>[
+                  for (final DisplayProfile value in DisplayProfile.values)
+                    PaperChip(
+                      label: value.label,
+                      selected: profile == value,
+                      onTap: () => controller.setDisplayProfile(value),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const PaperRule(inset: PaperSpace.gutter),
+        PaperSettingRow(
+          label: 'Panel capability',
+          subtitle: policy.capabilities.summary,
+        ),
+        const SizedBox(height: PaperSpace.sm),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: PaperSpace.gutter),
+          child: Text(
+            'E-Ink Friendly changes real behaviour: navigation is instant, the '
+            'clock updates on the minute, controls are larger, contrast is '
+            'stronger, and the reader uses pages and tap zones only. PaperOS '
+            'does not send undocumented vendor refresh commands.',
+            style: type.caption,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -514,10 +583,11 @@ class _AboutSection extends StatelessWidget {
     return _Section(
       title: 'About',
       children: <Widget>[
-        const PaperSettingRow(
+        PaperSettingRow(
           label: 'Version',
           subtitle:
-              '${PaperConfig.appName} · schema v${PaperConfig.databaseVersion}',
+              '${PaperConfig.appName} ${PaperConfig.versionLabel} · '
+              'schema v${PaperConfig.databaseVersion}',
         ),
         const PaperRule(inset: PaperSpace.gutter),
         const PaperSettingRow(
