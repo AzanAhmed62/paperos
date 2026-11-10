@@ -47,6 +47,7 @@ class ReaderSession extends AsyncNotifier<ReaderState> {
   Duration _accumulated = Duration.zero;
   Timer? _idleSaveTimer;
   Size _viewport = Size.zero;
+  TextScaler _textScaler = TextScaler.noScaling;
   int _scrollRequestId = 0;
 
   EpubReaderBackend? get epubBackend {
@@ -222,6 +223,7 @@ class ReaderSession extends AsyncNotifier<ReaderState> {
         width: _textWidth(settings),
         height: _textHeight(),
         horizontalPadding: settings.margin,
+        textScaler: _textScaler,
       ),
     );
   }
@@ -232,6 +234,7 @@ class ReaderSession extends AsyncNotifier<ReaderState> {
       paginator: TextPaginator(
         text: book.text,
         style: _readingTextStyle(settings),
+        textScaler: _textScaler,
         width: _textWidth(settings),
         height: _textHeight(),
         horizontalPadding: settings.margin,
@@ -266,9 +269,12 @@ class ReaderSession extends AsyncNotifier<ReaderState> {
 
   /// Supplies the laid-out viewport, which text pagination is measured
   /// against and which is not known until after the first frame.
-  void setViewport(Size size) {
-    if (size.isEmpty || size == _viewport) return;
+  void setViewport(Size size, {TextScaler? textScaler}) {
+    if (size.isEmpty) return;
+    final TextScaler scaler = textScaler ?? _textScaler;
+    if (size == _viewport && scaler == _textScaler) return;
     _viewport = size;
+    _textScaler = scaler;
     final ReaderState? current = state.value;
     if (current == null) return;
     if (current.backend is! TextReaderBackend &&

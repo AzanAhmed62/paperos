@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app/paper_app.dart';
 import 'app/providers.dart';
+import 'core/storage/app_storage.dart';
 
 /// Entry point.
 ///
@@ -18,6 +21,10 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final SharedPreferences preferences = await SharedPreferences.getInstance();
+
+  // Trash retention and abandoned backup staging are housekeeping, never a
+  // reason to delay or fail a launch.
+  unawaited(AppStorage().cleanupDisposableStorage());
 
   runApp(
     ProviderScope(

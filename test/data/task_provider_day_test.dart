@@ -52,58 +52,50 @@ void main() {
     ]);
   });
 
-  test(
-    'todayTasksProvider refreshes after each mutation, not just the first',
-    () async {
-      final DateTime now = DateTime.now();
-      final DateTime today = DateTime(now.year, now.month, now.day);
+  test('todayTasksProvider refreshes after each mutation, not just the first', () async {
+    final DateTime now = DateTime.now();
+    final DateTime today = DateTime(now.year, now.month, now.day);
 
-      // A widget keeps this provider alive by watching it; a bare `.future` read
-      // does not, so hold a listener just as the Home section does.
-      final ProviderSubscription<AsyncValue<List<Task>>> subscription =
-          container.listen(todayTasksProvider, (_, _) {});
-      addTearDown(subscription.close);
+    // A widget keeps this provider alive by watching it; a bare `.future` read
+    // does not, so hold a listener just as the Home section does.
+    final ProviderSubscription<AsyncValue<List<Task>>> subscription = container
+        .listen(todayTasksProvider, (_, _) {});
+    addTearDown(subscription.close);
 
-      Future<List<Task>> waitFor(
-        bool Function(List<Task> tasks) ready, {
-        String? description,
-      }) async {
-        for (int attempt = 0; attempt < 200; attempt++) {
-          final AsyncValue<List<Task>> value = container.read(
-            todayTasksProvider,
-          );
-          if (value.hasValue && !value.isLoading && ready(value.requireValue)) {
-            return value.requireValue;
-          }
-          await Future<void>.delayed(const Duration(milliseconds: 10));
+    Future<List<Task>> waitFor(
+      bool Function(List<Task> tasks) ready, {
+      String? description,
+    }) async {
+      for (int attempt = 0; attempt < 200; attempt++) {
+        final AsyncValue<List<Task>> value = container.read(todayTasksProvider);
+        if (value.hasValue && !value.isLoading && ready(value.requireValue)) {
+          return value.requireValue;
         }
-        fail('todayTasksProvider did not refresh: ${description ?? ''}');
+        await Future<void>.delayed(const Duration(milliseconds: 10));
       }
+      fail('todayTasksProvider did not refresh: ${description ?? ''}');
+    }
 
-      final Task first = await repository.create(
-        title: 'First',
-        dueDate: today,
-      );
-      final Task second = await repository.create(
-        title: 'Second',
-        dueDate: today,
-      );
+    final Task first = await repository.create(title: 'First', dueDate: today);
+    final Task second = await repository.create(
+      title: 'Second',
+      dueDate: today,
+    );
 
-      List<Task> tasks = await waitFor((List<Task> tasks) => tasks.length == 2);
+    List<Task> tasks = await waitFor((List<Task> tasks) => tasks.length == 2);
 
-      await repository.setDone(first.id, true);
-      tasks = await waitFor(
-        (List<Task> tasks) =>
-            tasks.firstWhere((Task task) => task.id == first.id).isDone,
-        description: 'first task marked done',
-      );
+    await repository.setDone(first.id, true);
+    tasks = await waitFor(
+      (List<Task> tasks) =>
+          tasks.firstWhere((Task task) => task.id == first.id).isDone,
+      description: 'first task marked done',
+    );
 
-      await repository.delete(second.id);
-      tasks = await waitFor(
-        (List<Task> tasks) => tasks.length == 1,
-        description: 'second task deleted',
-      );
-      expect(tasks.map((Task task) => task.title), <String>['First']);
-    },
-  );
+    await repository.delete(second.id);
+    tasks = await waitFor(
+      (List<Task> tasks) => tasks.length == 1,
+      description: 'second task deleted',
+    );
+    expect(tasks.map((Task task) => task.title), <String>['First']);
+  });
 }

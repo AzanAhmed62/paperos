@@ -89,7 +89,7 @@ I/O, `application/` owns Riverpod state, and `presentation/` owns widgets.
 | App documents directory | imported originals and generated EPUB covers | `AppStorage` and `LibraryService` |
 | App trash directory | files awaiting removal | `AppStorage` / `LibraryService` |
 | Backup staging directory | temporary archive files and extracted restore data | `BackupService` and `BackupArchive` |
-| Safety-backup directory | newest three pre-restore archives | `BackupService` |
+| `safety/` directory | newest three pre-restore archives | `BackupService` |
 
 Settings are deliberately separate from SQLite: changing the theme must not
 require opening the content database.
@@ -244,10 +244,11 @@ validates rows and relationships, builds a fresh real SQLite database at schema
 
 Restore is full replacement. A safety snapshot is written first. Attachments are
 copied to new unique names, settings are imported, and all six tables are
-replaced inside one SQLite transaction. A failure rolls back settings and removes
-newly copied files. Old files are moved to app trash after the commit. The
-cross-store settings/database window is documented in
-[`backup-restore.md`](backup-restore.md).
+replaced inside one SQLite transaction. A failure before the commit rolls back
+settings and removes newly copied files; once the commit succeeds those files
+are live library data and a late cleanup failure cannot delete them. Old files
+are moved to app trash after the commit. The cross-store settings/database
+window is documented in [`backup-restore.md`](backup-restore.md).
 
 SAF save and open use a small native streaming channel
 (`dev.paperos/saf`) because `file_picker` buffers saved bytes in memory. The
@@ -265,9 +266,13 @@ cadence, reader flow, page-turn mode, selection opacity and typography from the
 profile plus those capabilities.
 
 `PaperApp` publishes the policy through `DisplayPolicyScope`, applies the
-high-contrast palette and `MediaQuery.disableAnimations`, and the Home clock
-schedules a one-shot timer via `nextClockDelay`. Reader settings are adjusted on
-a render-time copy; stored values are never overwritten. No vendor refresh API
+high-contrast palette and `MediaQuery.disableAnimations`, installs a scroll
+behaviour that disables fling and overscroll decoration for E-Ink, and the Home
+clock schedules a one-shot timer via `nextClockDelay`. The router, sheets and
+dialogs read their animation duration from the policy, so E-Ink removes the
+transition instead of shortening it. The reader re-paginates when the system text
+scale changes. Reader settings are adjusted on a render-time copy; stored values
+are never overwritten. No vendor refresh API
 is called, and no undocumented broadcast is used. See
 [`eink-profile.md`](eink-profile.md).
 

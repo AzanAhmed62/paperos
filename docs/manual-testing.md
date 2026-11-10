@@ -86,8 +86,8 @@ environment.
 | 25 | Home role and app drawer | Settings → request Home role; choose PaperOS as Home; open the app drawer; pin and launch an app. | The role picker appears; the drawer lists launchable apps; launch returns to the app. | Not run — no device |
 | 26 | Process death | While reading an EPUB, remove the task from recents and reopen. | The book remains in the library with its last flushed passage. | Not run — no device |
 | 27 | Low storage / permission denial | Deny a picker, then try a file that disappears before import. | The app shows a recoverable message and does not add a broken row. | Not run — no device |
-| 28 | Release permissions | Build a release APK and inspect the merged manifest/APK permissions. | No `INTERNET`, no broad storage permission, no unrelated permission. | Not run — no release artifact without signing credentials |
-| 29 | Full backup | With the populated library, Settings → back up library, choose a folder through SAF, save a `.paperosbackup`, then inspect it with a ZIP tool. | Save picker appears; progress completes; archive contains `manifest.json`, `manifest.sha256`, `database.json`, `settings.json`, `books/`, and any covers; books are not in SQLite. | Not run — no device |
+| 28 | Release permissions | Build a release APK and inspect the merged manifest/APK permissions. | No `INTERNET`, no broad storage permission, no unrelated permission. | Static audit passed on the unsigned analysis APK; install not run — no device or signing credentials |
+| 29 | Full backup | With the populated library, Settings → Create a backup, choose a folder through SAF, save a `.paperosbackup`, then inspect it with a ZIP tool. | Save picker appears; progress completes; archive contains `manifest.json`, `manifest.sha256`, `database.json`, `settings.json`, `books/`, and any covers; books are not in SQLite. | Not run — no device |
 | 30 | Restore replacement | Change some progress/settings, then restore the backup from case 29 through SAF. Confirm the warning. | Preview counts and warnings appear; after restore, documents, covers, progress, bookmarks, annotations, notes, tasks, folder references, reading locators, and display profile match the backup exactly. | Not run — no device |
 | 31 | Restore rejection and safety | Try a truncated archive, a modified payload, a traversal-name archive, a future-version manifest, and a wrong password-looking ZIP. Then restore a valid backup. | Each bad archive is rejected before the live library changes; no partial rows remain; a valid restore still succeeds; a safety snapshot exists. | Not run — no device |
 | 32 | Restore cancellation | Begin a restore of a large archive and cancel before the final commit. Afterwards reopen the library. | Cancel is acknowledged, staging/copies are cleaned up, and the previous library/settings are unchanged. | Not run — no device |
@@ -116,5 +116,8 @@ personal notes; reduce it to synthetic content first.
 
 No Android device or emulator was connected during the v1.2 implementation. All
 36 rows above are therefore **not run**; rows that require a release signature
-also lack owner-supplied credentials. Automated coverage is recorded in the
-final report and README; it is not a substitute for this checklist.
+also lack owner-supplied credentials. A debug APK was built successfully
+(`dev.paperos.app.debug`, debug-signed, SHA-256
+`d8269c92a72aada2ea94fa1e09936f8381bdccf8686a59b25e3d80fc32b5cf22`), but it was
+not installed or exercised. Automated coverage is recorded in the final report
+and README; it is not a substitute for this checklist.

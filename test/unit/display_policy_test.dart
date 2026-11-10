@@ -25,15 +25,17 @@ void main() {
   });
 
   group('DisplayCapabilities', () {
-    test('the shipped service is conservative and never claims flash support',
-        () {
-      final DisplayCapabilities capabilities =
-          const ConservativeDisplayCapabilityService().capabilities();
-      expect(capabilities.isEinkPanel, isFalse);
-      expect(capabilities.supportsHardwareRefresh, isFalse);
-      expect(capabilities.vendorName, isNull);
-      expect(capabilities.summary, contains('Software-only'));
-    });
+    test(
+      'the shipped service is conservative and never claims flash support',
+      () {
+        final DisplayCapabilities capabilities =
+            const ConservativeDisplayCapabilityService().capabilities();
+        expect(capabilities.isEinkPanel, isFalse);
+        expect(capabilities.supportsHardwareRefresh, isFalse);
+        expect(capabilities.vendorName, isNull);
+        expect(capabilities.summary, contains('Software-only'));
+      },
+    );
 
     test('hardware refresh is only exposed when a vendor API is attached', () {
       const DisplayPolicy noApi = DisplayPolicy(
@@ -104,18 +106,27 @@ void main() {
   group('nextClockDelay', () {
     test('standard ticks every second', () {
       expect(
-        nextClockDelay(DateTime(2026, 3, 1, 12, 34, 56, 500), DisplayProfile.standard),
+        nextClockDelay(
+          DateTime(2026, 3, 1, 12, 34, 56, 500),
+          DisplayProfile.standard,
+        ),
         const Duration(seconds: 1),
       );
     });
 
     test('E-Ink sleeps until just after the next minute boundary', () {
       expect(
-        nextClockDelay(DateTime(2026, 3, 1, 12, 34, 56, 500), DisplayProfile.eink),
+        nextClockDelay(
+          DateTime(2026, 3, 1, 12, 34, 56, 500),
+          DisplayProfile.eink,
+        ),
         const Duration(seconds: 3, milliseconds: 540),
       );
       expect(
-        nextClockDelay(DateTime(2026, 3, 1, 12, 34, 59, 999), DisplayProfile.eink),
+        nextClockDelay(
+          DateTime(2026, 3, 1, 12, 34, 59, 999),
+          DisplayProfile.eink,
+        ),
         const Duration(milliseconds: 41),
       );
     });
@@ -194,14 +205,11 @@ void main() {
           display: const DisplaySettings(profile: DisplayProfile.eink),
         ),
       );
-      final Map<String, Object?> document =
-          jsonDecode(preferences.getString(SettingsRepository.settingsKey)!)
-              as Map<String, Object?>;
+      final Map<String, Object?> document = jsonDecode(
+        preferences.getString(SettingsRepository.settingsKey)!,
+      ) as Map<String, Object?>;
       expect(document['version'], 2);
-      expect(
-        document['display'],
-        <String, Object?>{'profile': 'eink'},
-      );
+      expect(document['display'], <String, Object?>{'profile': 'eink'});
       expect(repository.load().display.profile, DisplayProfile.eink);
       expect(
         SettingsRepository(preferences).load().display.profile,
@@ -209,33 +217,34 @@ void main() {
       );
     });
 
-    test('reads a legacy document with no version and no display section',
-        () {
+    test('reads a legacy document with no version and no display section', () {
       final Map<String, Object?> legacy = const AppSettings.defaults().toJson();
       legacy.remove('display');
       preferences.setString(SettingsRepository.settingsKey, jsonEncode(legacy));
       expect(repository.load().display.profile, DisplayProfile.standard);
     });
 
-    test('rejects a future settings version without overwriting defaults',
-        () async {
-      preferences.setString(
-        SettingsRepository.settingsKey,
-        jsonEncode(<String, Object?>{
-          'version': SettingsRepository.documentVersion + 1,
-          'settings': const AppSettings.defaults().toJson(),
-        }),
-      );
-      expect(repository.load().display.profile, DisplayProfile.standard);
-      await expectLater(
-        repository.importJson(
+    test(
+      'rejects a future settings version without overwriting defaults',
+      () async {
+        preferences.setString(
+          SettingsRepository.settingsKey,
           jsonEncode(<String, Object?>{
             'version': SettingsRepository.documentVersion + 1,
             'settings': const AppSettings.defaults().toJson(),
           }),
-        ),
-        throwsA(isA<Exception>()),
-      );
-    });
+        );
+        expect(repository.load().display.profile, DisplayProfile.standard);
+        await expectLater(
+          repository.importJson(
+            jsonEncode(<String, Object?>{
+              'version': SettingsRepository.documentVersion + 1,
+              'settings': const AppSettings.defaults().toJson(),
+            }),
+          ),
+          throwsA(isA<Exception>()),
+        );
+      },
+    );
   });
 }

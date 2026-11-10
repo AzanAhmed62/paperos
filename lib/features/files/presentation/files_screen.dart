@@ -331,11 +331,7 @@ class _EntryTile extends StatelessWidget {
           subtitle: _subtitle(),
           leading: Icon(icon, size: 22, color: iconColor),
           trailing: busy
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
+              ? const PaperProgress(strokeWidth: 2)
               : entry.isDirectory
               ? const Icon(Icons.chevron_right, size: 18)
               : entry.isReadable

@@ -213,13 +213,7 @@ CREATE TABLE annotations (
       'created_at',
       'updated_at',
     ],
-    'notes': <String>[
-      'id',
-      'title',
-      'body',
-      'created_at',
-      'updated_at',
-    ],
+    'notes': <String>['id', 'title', 'body', 'created_at', 'updated_at'],
     'tasks': <String>[
       'id',
       'title',
@@ -228,13 +222,7 @@ CREATE TABLE annotations (
       'created_at',
       'completed_at',
     ],
-    'locations': <String>[
-      'id',
-      'label',
-      'path',
-      'is_system',
-      'added_at',
-    ],
+    'locations': <String>['id', 'label', 'path', 'is_system', 'added_at'],
   };
 
   /// Non-null columns, checked before a restore touches the live database.
@@ -270,26 +258,9 @@ CREATE TABLE annotations (
           'created_at',
           'updated_at',
         ],
-        'notes': <String>[
-          'id',
-          'title',
-          'body',
-          'created_at',
-          'updated_at',
-        ],
-        'tasks': <String>[
-          'id',
-          'title',
-          'is_done',
-          'created_at',
-        ],
-        'locations': <String>[
-          'id',
-          'label',
-          'path',
-          'is_system',
-          'added_at',
-        ],
+        'notes': <String>['id', 'title', 'body', 'created_at', 'updated_at'],
+        'tasks': <String>['id', 'title', 'is_done', 'created_at'],
+        'locations': <String>['id', 'label', 'path', 'is_system', 'added_at'],
       };
 
   /// Additive migration from schema 1. Every statement is safe to run once

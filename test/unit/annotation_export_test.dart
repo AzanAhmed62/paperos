@@ -65,11 +65,7 @@ void main() {
       document: document,
       exportedAt: created,
       bookmarks: <Bookmark>[
-        bookmark(
-          id: 'mark-1',
-          label: 'A bookmark',
-          excerpt: 'A saved line',
-        ),
+        bookmark(id: 'mark-1', label: 'A bookmark', excerpt: 'A saved line'),
       ],
       annotations: <Annotation>[
         annotation(
@@ -120,63 +116,87 @@ void main() {
     expect(export.fileStem, 'The Paper Road annotations');
   });
 
-  test('JSON carries explicit book, chapters, counts and orphan disclosure', () {
+  test(
+    'JSON carries explicit book, chapters, counts and orphan disclosure',
+    () {
+      final AnnotationExport export = AnnotationExportBuilder.build(
+        document: document,
+        exportedAt: created,
+        bookmarks: <Bookmark>[bookmark(id: 'mark-1', label: 'A bookmark')],
+        annotations: <Annotation>[
+          annotation(
+            id: 'a-1',
+            chapter: 0,
+            chapterTitle: 'First Chapter',
+            excerpt: 'First excerpt',
+            note: 'A note',
+          ),
+          annotation(
+            id: 'a-2',
+            chapter: 8,
+            chapterTitle: 'Old Chapter',
+            excerpt: 'Detached',
+            orphaned: true,
+          ),
+        ],
+      );
+      final Map<String, Object?> json =
+          jsonDecode(export.json) as Map<String, Object?>;
+      expect(json['format'], 'paperos.annotations');
+      expect(json['version'], 1);
+      expect(
+        (json['book']! as Map<String, Object?>)['title'],
+        'The Paper Road',
+      );
+      expect((json['book']! as Map<String, Object?>)['author'], 'Ada Lovelace');
+      final Map<String, Object?> counts =
+          json['counts']! as Map<String, Object?>;
+      expect(counts['annotations'], 2);
+      expect(counts['bookmarks'], 1);
+      expect(counts['orphanedAnnotations'], 1);
+      expect(json['orphanedDisclosure'], contains('preserved'));
+      final List<Object?> annotations = json['annotations']! as List<Object?>;
+      expect(annotations, hasLength(2));
+      final Map<String, Object?> first =
+          annotations.first as Map<String, Object?>;
+      expect(first['id'], 'a-1');
+      expect(first['type'], 'highlight');
+      expect(first['chapterTitle'], 'First Chapter');
+      expect(first['note'], 'A note');
+      final Map<String, Object?> second =
+          annotations.last as Map<String, Object?>;
+      expect(second['orphaned'], isTrue);
+      expect(second['orphanDisclosure'], contains('could not be anchored'));
+      final List<Object?> bookmarks = json['bookmarks']! as List<Object?>;
+      expect((bookmarks.single as Map<String, Object?>)['label'], 'A bookmark');
+    },
+  );
+
+  test('preserves paragraph breaks in a multi-line personal note', () {
     final AnnotationExport export = AnnotationExportBuilder.build(
       document: document,
       exportedAt: created,
-      bookmarks: <Bookmark>[
-        bookmark(id: 'mark-1', label: 'A bookmark'),
-      ],
+      bookmarks: const <Bookmark>[],
       annotations: <Annotation>[
         annotation(
           id: 'a-1',
           chapter: 0,
           chapterTitle: 'First Chapter',
-          excerpt: 'First excerpt',
-          note: 'A note',
-        ),
-        annotation(
-          id: 'a-2',
-          chapter: 8,
-          chapterTitle: 'Old Chapter',
-          excerpt: 'Detached',
-          orphaned: true,
+          excerpt: 'A passage',
+          note: 'First thought.\r\n\r\nSecond thought.\r\n',
         ),
       ],
     );
-    final Map<String, Object?> json =
-        jsonDecode(export.json) as Map<String, Object?>;
-    expect(json['format'], 'paperos.annotations');
-    expect(json['version'], 1);
-    expect((json['book']! as Map<String, Object?>)['title'], 'The Paper Road');
-    expect((json['book']! as Map<String, Object?>)['author'], 'Ada Lovelace');
-    final Map<String, Object?> counts =
-        json['counts']! as Map<String, Object?>;
-    expect(counts['annotations'], 2);
-    expect(counts['bookmarks'], 1);
-    expect(counts['orphanedAnnotations'], 1);
-    expect(json['orphanedDisclosure'], contains('preserved'));
-    final List<Object?> annotations =
-        json['annotations']! as List<Object?>;
-    expect(annotations, hasLength(2));
-    final Map<String, Object?> first =
-        annotations.first as Map<String, Object?>;
-    expect(first['id'], 'a-1');
-    expect(first['type'], 'highlight');
-    expect(first['chapterTitle'], 'First Chapter');
-    expect(first['note'], 'A note');
-    final Map<String, Object?> second =
-        annotations.last as Map<String, Object?>;
-    expect(second['orphaned'], isTrue);
-    expect(second['orphanDisclosure'], contains('could not be anchored'));
-    final List<Object?> bookmarks = json['bookmarks']! as List<Object?>;
-    expect((bookmarks.single as Map<String, Object?>)['label'], 'A bookmark');
+
+    expect(
+      export.markdown,
+      contains('**Note:**\n\nFirst thought.\n\nSecond thought.'),
+    );
+    expect(export.markdown, isNot(contains('First thought. Second thought.')));
   });
 
   test('uses a safe file stem and still exports an empty book', () {
-    final Document unsafe = document.copyWith(
-      title: 'A/B: C*?"<>|',
-    );
+    final Document unsafe = document.copyWith(title: 'A/B: C*?"<>|');
     final AnnotationExport export = AnnotationExportBuilder.build(
       document: unsafe,
       exportedAt: created,

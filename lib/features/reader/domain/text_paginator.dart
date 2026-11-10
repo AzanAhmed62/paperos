@@ -42,10 +42,12 @@ class TextPaginator {
     required this.width,
     required this.height,
     this.horizontalPadding = 0,
+    this.textScaler = TextScaler.noScaling,
   }) : assert(width > 0 && height > 0, 'Viewport must have a positive size') {
     _painter = TextPainter(
       textDirection: TextDirection.ltr,
       textAlign: TextAlign.left,
+      textScaler: textScaler,
       strutStyle: StrutStyle(
         fontFamily: style.fontFamily,
         fontSize: style.fontSize,
@@ -64,6 +66,11 @@ class TextPaginator {
   /// Usable text height in logical pixels.
   final double height;
   final double horizontalPadding;
+
+  /// The same scaler the reading surface renders with. Measuring with
+  /// [TextScaler.noScaling] while the text draws with the system font scale is
+  /// what makes large accessibility text overflow its measured page.
+  final TextScaler textScaler;
 
   late final TextPainter _painter;
 

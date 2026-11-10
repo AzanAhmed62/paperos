@@ -104,15 +104,30 @@ void main() {
       final String text = prose * 250;
       final TextPaginator paginator = paginate(text: text);
 
-      final String rebuilt = readToEnd(
-        paginator,
-      ).map((TextPage page) => page.text).join();
+      final String rebuilt = readToEnd(paginator)
+          .map((TextPage page) => page.text)
+          .join();
 
       expect(
         rebuilt,
         text,
         reason: 'pages must reconstruct the source exactly',
       );
+    });
+
+    test('measures with the text scale the reader draws with', () {
+      final TextPaginator standard = paginate(text: prose * 400);
+      final TextPaginator scaled = TextPaginator(
+        text: prose * 400,
+        style: style,
+        width: 400,
+        height: 600,
+        textScaler: const TextScaler.linear(2),
+      );
+
+      // A page measured at 200% type must hold fewer characters than the same
+      // page at 100%, otherwise large accessibility text would overflow.
+      expect(scaled.pageAt(0).end, lessThan(standard.pageAt(0).end));
     });
 
     test('measures lazily and finishes only when the end is reached', () {

@@ -69,11 +69,7 @@ class _BackupSectionState extends ConsumerState<BackupSection> {
             ),
             child: Row(
               children: <Widget>[
-                const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 1.5),
-                ),
+                const PaperProgress(),
                 const SizedBox(width: PaperSpace.md),
                 Text('Checking the archive…', style: type.caption),
               ],
@@ -195,8 +191,10 @@ class _BackupSectionState extends ConsumerState<BackupSection> {
     final BackupManifest manifest = preview.manifest;
     final PaperPalette palette = paperPalette(context);
     final PaperTypography type = PaperTypography.of(context);
-    final BackupCounts counts = manifest.counts;    final bool? confirmed = await showDialog<bool>(
+    final BackupCounts counts = manifest.counts;
+    final bool? confirmed = await showDialog<bool>(
       context: context,
+      animationStyle: paperModalAnimationStyle(context),
       barrierColor: palette.ink.withValues(alpha: 0.32),
       builder: (BuildContext dialogContext) {
         return Dialog(
@@ -220,7 +218,10 @@ class _BackupSectionState extends ConsumerState<BackupSection> {
                     style: type.body,
                   ),
                   const SizedBox(height: PaperSpace.lg),
-                  _PreviewLine(label: 'Documents', value: '${counts.documents}'),
+                  _PreviewLine(
+                    label: 'Documents',
+                    value: '${counts.documents}',
+                  ),
                   _PreviewLine(
                     label: 'Bookmarks',
                     value: '${counts.bookmarks}',
@@ -231,10 +232,7 @@ class _BackupSectionState extends ConsumerState<BackupSection> {
                   ),
                   _PreviewLine(label: 'Notes', value: '${counts.notes}'),
                   _PreviewLine(label: 'Tasks', value: '${counts.tasks}'),
-                  _PreviewLine(
-                    label: 'Folders',
-                    value: '${counts.locations}',
-                  ),
+                  _PreviewLine(label: 'Folders', value: '${counts.locations}'),
                   _PreviewLine(
                     label: 'Library files',
                     value: _bytes(manifest.libraryBytes),

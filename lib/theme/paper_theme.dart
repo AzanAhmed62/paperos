@@ -15,6 +15,7 @@ abstract final class PaperTheme {
     required PaperStyle style,
     PaperTypeOptions typeOptions = const PaperTypeOptions(),
     bool einkFriendly = false,
+    double selectionOpacity = 0.20,
   }) {
     final PaperPalette palette = einkFriendly
         ? PaperPalette.of(style).highContrast()
@@ -104,7 +105,9 @@ abstract final class PaperTheme {
       ),
       textSelectionTheme: TextSelectionThemeData(
         cursorColor: palette.ink,
-        selectionColor: palette.rule,
+        // The opacity comes from DisplayPolicy: E-Ink uses a stronger fill so
+        // a selection is unmistakable on a panel with few grey levels.
+        selectionColor: palette.ink.withValues(alpha: selectionOpacity),
         selectionHandleColor: palette.ink,
       ),
       textButtonTheme: TextButtonThemeData(

@@ -83,16 +83,14 @@ void main() {
       }
 
       expect(
-        (await documents.list(
-          scope: LibraryScope.epub,
-        )).map((Document d) => d.id),
+        (await documents.list(scope: LibraryScope.epub))
+            .map((Document d) => d.id),
         containsAll(<String>['unread-epub', 'progress-epub', 'finished-epub']),
       );
       expect((await documents.list(scope: LibraryScope.pdf)).single.id, 'pdf');
       expect(
-        (await documents.list(
-          scope: LibraryScope.unread,
-        )).map((Document d) => d.id),
+        (await documents.list(scope: LibraryScope.unread))
+            .map((Document d) => d.id),
         containsAll(<String>['unread-epub', 'pdf']),
       );
       expect(

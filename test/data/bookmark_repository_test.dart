@@ -154,9 +154,9 @@ void main() {
         );
       }
 
-      final List<int> pages = (await bookmarks.listFor(
-        'doc',
-      )).map((Bookmark b) => b.page).toList();
+      final List<int> pages = (await bookmarks.listFor('doc'))
+          .map((Bookmark b) => b.page)
+          .toList();
       expect(pages, <int>[5, 18, 30]);
     });
   });

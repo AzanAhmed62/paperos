@@ -403,6 +403,7 @@ class _FavouritesEditor extends ConsumerWidget {
 
     await showModalBottomSheet<void>(
       context: context,
+      sheetAnimationStyle: paperModalAnimationStyle(context),
       isScrollControlled: true,
       backgroundColor: palette.canvas,
       barrierColor: palette.ink.withValues(alpha: 0.32),
@@ -522,13 +523,7 @@ class _StorageSectionState extends ConsumerState<_StorageSection> {
           subtitle:
               'Deletes the copies PaperOS made and all reading progress. '
               'Notes and tasks are kept.',
-          trailing: _busy
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 1.5),
-                )
-              : null,
+          trailing: _busy ? const PaperProgress() : null,
           onTap: _busy ? null : _clearLibrary,
         ),
         const SizedBox(height: PaperSpace.sm),

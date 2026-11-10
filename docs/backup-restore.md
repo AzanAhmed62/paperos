@@ -42,7 +42,7 @@ journal.
 ## Creating a backup
 
 1. Open **Settings**.
-2. Choose **Back up library**.
+2. Choose **Create a backup**.
 3. PaperOS takes a consistent database snapshot, asks every document and cover
    for its current size and SHA-256, writes the archive and verifies its own
    manifest before offering it to the system save picker.
@@ -64,11 +64,11 @@ private temporary archive is removed.
 ## Restoring a backup
 
 1. Open **Settings**.
-2. Choose **Restore from backup**.
+2. Choose **Restore from a backup**.
 3. Pick a `.paperosbackup` file. PaperOS copies it to its private cache using a
    bounded stream (the selected file is never trusted in place).
-4. Review the preview: creation date, app version, counts for every table, book
-   and cover totals, and warnings.
+4. Review the preview: creation date, app version, the six row counts, the
+   combined library-file size, and warnings.
 5. Confirm the replacement. The preview explicitly says that the current
    library and settings will be replaced.
 6. PaperOS shows progress and allows cancellation until the final commit.
@@ -82,7 +82,8 @@ backup's contents.
 ### Restore sequence
 
 1. **Safety snapshot.** A backup of the current library and settings is written
-   to app-private `safety-backups/` before the selected archive is touched.
+   to the app-private `safety/` directory before the selected archive is
+   touched.
 2. **Preflight.** The ZIP directory, names, sizes, compression, encryption,
    entry count and path safety are checked. `manifest.sha256` is verified.
 3. **Manifest validation.** Format version, database schema version, counts,
@@ -126,7 +127,7 @@ transactional. A failure before step 9 leaves the current library in place.
 ### Safety snapshots
 
 Safety snapshots use the same format and are stored under the app's private
-`safety-backups/` directory. The newest three are kept. They are not offered in
+`safety/` directory. The newest three are kept. They are not offered in
 the normal file picker unless the app gains an export-safety feature in a later
 release; they exist for recovery after a bad restore.
 

@@ -91,35 +91,32 @@ credential values. The build only records whether signing was configured.
 ### Unsigned analysis builds
 
 For APK composition measurement on a machine without production credentials,
-there is one explicit escape hatch:
+there is one explicit escape hatch. Pass the Gradle property through Flutter:
 
-```powershell
-flutter build apk --release --split-per-abi `
-  --dart-define=... # not required
-# pass the Gradle property through:
+```bash
+flutter build apk --release -Ppaperos.allowUnsignedRelease=true
+flutter build appbundle --release -Ppaperos.allowUnsignedRelease=true
 ```
 
-```powershell
-.\gradlew.bat assembleRelease -Ppaperos.allowUnsignedRelease=true
-```
-
-An unsigned artifact is named with `-unsigned`, cannot be installed, and must
-never be distributed. It is evidence of size and manifest composition only. The
-default release path remains fail-closed.
+Flutter writes the unsigned APK to `app-release.apk` and the bundle to
+`app-release.aab`. Rename the APK to `app-release-unsigned.apk` immediately
+after the build; never leave an unsigned artifact under the signed-release name.
+Neither artifact is installable or distributable. They are evidence of size and
+manifest composition only, and the default release path remains fail-closed.
 
 ## Prerequisites
 
 - Flutter SDK matching `pubspec.yaml` (this project was built with Flutter
-  3.47.7 / Dart 3.13.5).
-- JDK 17 or 21. This repository was built with JDK 21.0.12. Gradle 8.14's
-  embedded Kotlin DSL does not support JDK 25, so do not point `JAVA_HOME` at a
-  JDK 25 installation.
+  3.47.9 / Dart 3.13.7).
+- JDK 17 or 21. This repository was built with JDK 17.0.20.1, selected through
+  `flutter config --jdk-dir`. Gradle 8.14's embedded Kotlin DSL does not support
+  JDK 25, so do not point `JAVA_HOME` at a JDK 25 installation.
 - Android SDK with the platform/build-tools required by the Flutter SDK.
 - Enough memory for Gradle. This repository lowers the daemon heap to 1.5 GB
   because a 4 GB heap was terminated on a 4 GB build host.
 
 ```powershell
-$env:JAVA_HOME = 'C:\Program Files\Java\jdk-21.0.12'
+flutter config --jdk-dir=/usr/lib/jvm/java-17-openjdk-amd64
 flutter --version
 flutter pub get
 flutter doctor -v
@@ -137,9 +134,10 @@ flutter analyze
 flutter test
 ```
 
-The 1.2 automated baseline is the original 134 tests plus the new backup,
-annotation-export and display tests. The exact total and result of the release
-run are recorded in the final report; do not copy an old count.
+The 1.2 automated baseline is **163 tests**: the original 134 plus the new
+backup, annotation-export, display, settings-envelope and text-scaling tests.
+All 163 passed in the final release run; the final report records the exact
+result. Do not copy an old count.
 
 Database tests use the real SQLite engine (`sqflite_common_ffi`), not a fake.
 Device-only checks remain in `docs/manual-testing.md` and are not converted to
@@ -170,8 +168,15 @@ build/app/outputs/flutter-apk/app-x86_64-release.apk
 build/app/outputs/bundle/release/app-release.aab
 ```
 
+An unsigned analysis build is written to
+`build/app/outputs/flutter-apk/app-release.apk`; rename it to
+`app-release-unsigned.apk` before recording it. A signed build uses the same
+`app-release.apk` name, so the rename is the only reliable distinction on disk.
+
 If signing is not configured, these commands must fail closed. In that case the
-honest result is "release artifacts not produced" and the report must say so.
+honest result is "signed release artifacts not produced" and the report must say
+so. An unsigned analysis artifact may still be produced with the explicit
+escape hatch.
 
 For each artifact record:
 
@@ -224,9 +229,12 @@ Expected:
 - no `android.permission.INTERNET`;
 - no `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE` or
   `MANAGE_EXTERNAL_STORAGE`;
-- no unrelated permission, service, receiver or provider;
-- exactly one exported activity, the launcher/Home/VIEW activity, and no
-  exported helper component;
+- no unrelated permission, service or provider;
+- exactly one exported activity, the launcher/Home/VIEW activity;
+- the only exported receiver is AndroidX's
+  `androidx.profileinstaller.ProfileInstallReceiver`, protected by
+  `android.permission.DUMP` (a signature permission held by the system/shell,
+  not by ordinary apps). Treat any other exported receiver as a failure;
 - `android:allowBackup="false"`.
 
 Record the actual result. A debug manifest containing `INTERNET` is not a

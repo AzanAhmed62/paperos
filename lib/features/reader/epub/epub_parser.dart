@@ -403,9 +403,9 @@ class EpubParser {
     String? text(String local) {
       final XmlElement? element = values[local];
       if (element == null) return null;
-      final String value = _textOf(
-        element,
-      ).replaceAll(RegExp(r'\s+'), ' ').trim();
+      final String value = _textOf(element)
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
       return value.isEmpty ? null : value;
     }
 
@@ -551,9 +551,9 @@ class EpubParser {
       }
       final XmlElement? source = link;
       if (source != null) {
-        final String title = _textOf(
-          source,
-        ).replaceAll(RegExp(r'\s+'), ' ').trim();
+        final String title = _textOf(source)
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim();
         final String? href = _attr(source, 'href');
         final _Target? target = _resolveTarget(baseDir, href);
         if (title.isNotEmpty && target != null) {
@@ -755,9 +755,9 @@ class EpubParser {
       if (id != null && id.trim().isNotEmpty) builder.markAnchor(id.trim());
       if (tag == 'h1' || tag == 'h2') {
         if (heading == null || heading!.trim().isEmpty) {
-          final String candidate = _textOf(
-            node,
-          ).replaceAll(RegExp(r'\s+'), ' ').trim();
+          final String candidate = _textOf(node)
+              .replaceAll(RegExp(r'\s+'), ' ')
+              .trim();
           if (candidate.isNotEmpty) heading = candidate;
         }
       }

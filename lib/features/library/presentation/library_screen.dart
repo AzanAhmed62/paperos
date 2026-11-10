@@ -173,13 +173,7 @@ class _ImportButtonState extends ConsumerState<_ImportButton> {
   Widget build(BuildContext context) {
     return IconButton(
       onPressed: _busy ? null : _import,
-      icon: _busy
-          ? const SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 1.5),
-            )
-          : const Icon(Icons.add),
+      icon: _busy ? const PaperProgress() : const Icon(Icons.add),
       tooltip: 'Import a document',
     );
   }
@@ -370,6 +364,7 @@ class _DocumentRow extends ConsumerWidget {
 
     await showModalBottomSheet<void>(
       context: context,
+      sheetAnimationStyle: paperModalAnimationStyle(context),
       backgroundColor: paperPalette(context).canvas,
       barrierColor: paperPalette(context).ink.withValues(alpha: 0.32),
       shape: const RoundedRectangleBorder(),

@@ -166,9 +166,8 @@ void main() {
           expect(document[column], isNull);
         }
 
-        final Map<String, Object?> bookmark = (await db.query(
-          'bookmarks',
-        )).single;
+        final Map<String, Object?> bookmark = (await db.query('bookmarks'))
+            .single;
         expect(bookmark['label'], 'Saved chapter');
         expect(bookmark['excerpt'], 'Old excerpt');
         expect(

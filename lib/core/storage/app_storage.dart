@@ -136,6 +136,40 @@ class AppStorage {
     }
     return removed;
   }
+
+  /// Best-effort cleanup of disposable work data. Called once at startup.
+  ///
+  /// Staging directories are only removed after a day so a restore that is
+  /// interrupted during process death can still be inspected if someone is
+  /// debugging, while ordinary failed sessions do not accumulate forever.
+  Future<void> cleanupDisposableStorage() async {
+    try {
+      await purgeTrash();
+    } on Object {
+      // Storage maintenance never blocks startup.
+    }
+    try {
+      final Directory staging = await backupStaging();
+      final DateTime cutoff = DateTime.now().subtract(const Duration(days: 1));
+      await for (final FileSystemEntity entity in staging.list()) {
+        try {
+          final DateTime modified = await entity.stat().then(
+            (FileStat stat) => stat.modified,
+          );
+          if (!modified.isBefore(cutoff)) continue;
+          if (entity is Directory) {
+            await entity.delete(recursive: true);
+          } else if (entity is File) {
+            await entity.delete();
+          }
+        } on Object {
+          // A directory may be in use or already gone.
+        }
+      }
+    } on Object {
+      // A missing or unreadable work directory is not a startup failure.
+    }
+  }
 }
 
 class StorageUsage {

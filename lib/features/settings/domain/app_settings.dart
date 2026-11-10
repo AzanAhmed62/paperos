@@ -278,9 +278,7 @@ class DisplaySettings {
     return DisplaySettings(profile: profile ?? this.profile);
   }
 
-  Map<String, Object?> toJson() => <String, Object?>{
-    'profile': profile.id,
-  };
+  Map<String, Object?> toJson() => <String, Object?>{'profile': profile.id};
 
   static DisplaySettings fromJson(Map<String, Object?> json) {
     return DisplaySettings(

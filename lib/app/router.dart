@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/display/display_policy.dart';
 import '../features/home/presentation/paper_home_screen.dart';
 import '../features/launcher/presentation/apps_screen.dart';
 import '../features/library/presentation/library_screen.dart';
@@ -73,6 +74,7 @@ final GoRouter appRouter = GoRouter(
       parentNavigatorKey: rootNavigatorKey,
       pageBuilder: (BuildContext context, GoRouterState state) {
         return _fadePage(
+          context,
           state,
           NoteEditorScreen(noteId: state.pathParameters['noteId']!),
         );
@@ -82,21 +84,21 @@ final GoRouter appRouter = GoRouter(
       path: Routes.apps,
       parentNavigatorKey: rootNavigatorKey,
       pageBuilder: (BuildContext context, GoRouterState state) {
-        return _fadePage(state, const AppsScreen());
+        return _fadePage(context, state, const AppsScreen());
       },
     ),
     GoRoute(
       path: Routes.tasks,
       parentNavigatorKey: rootNavigatorKey,
       pageBuilder: (BuildContext context, GoRouterState state) {
-        return _fadePage(state, const TasksScreen());
+        return _fadePage(context, state, const TasksScreen());
       },
     ),
     GoRoute(
       path: Routes.search,
       parentNavigatorKey: rootNavigatorKey,
       pageBuilder: (BuildContext context, GoRouterState state) {
-        return _fadePage(state, const SearchScreen());
+        return _fadePage(context, state, const SearchScreen());
       },
     ),
     GoRoute(
@@ -104,6 +106,7 @@ final GoRouter appRouter = GoRouter(
       parentNavigatorKey: rootNavigatorKey,
       pageBuilder: (BuildContext context, GoRouterState state) {
         return _fadePage(
+          context,
           state,
           ReaderScreen(documentId: state.pathParameters['documentId']!),
         );
@@ -131,12 +134,19 @@ GoRoute _tabRoute(String path, Widget child) {
 
 /// Overlays open with a short cross-fade and no horizontal slide: they sit on
 /// the same physical "page" rather than a step sideways.
-CustomTransitionPage<void> _fadePage(GoRouterState state, Widget child) {
+CustomTransitionPage<void> _fadePage(
+  BuildContext context,
+  GoRouterState state,
+  Widget child,
+) {
+  // The display policy owns the timing. E-Ink resolves to zero, which removes
+  // the overlay cross-fade instead of merely shortening it.
+  final Duration duration = DisplayPolicyScope.of(context).navigationDuration;
   return CustomTransitionPage<void>(
     key: state.pageKey,
     child: child,
-    transitionDuration: const Duration(milliseconds: 180),
-    reverseTransitionDuration: const Duration(milliseconds: 140),
+    transitionDuration: duration,
+    reverseTransitionDuration: duration,
     transitionsBuilder:
         (
           BuildContext context,

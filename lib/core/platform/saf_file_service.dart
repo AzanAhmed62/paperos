@@ -54,9 +54,7 @@ class PlatformSafFileService implements SafFileService {
     try {
       final Object? value = await _channel.invokeMethod<Object?>(
         'pickBackup',
-        <String, Object?>{
-          'maxBytes': PaperConfig.maxBackupUncompressedBytes,
-        },
+        <String, Object?>{'maxBytes': PaperConfig.maxBackupUncompressedBytes},
       );
       if (value == null) return null;
       if (value is! Map) {

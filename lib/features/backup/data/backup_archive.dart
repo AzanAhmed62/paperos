@@ -38,7 +38,7 @@ class ExtractedBackup {
 /// Archives are untrusted. The central directory is inspected before a single
 /// byte is decompressed: duplicate names, unsafe paths, encrypted entries,
 /// symlinks, unsupported compression, impossible sizes and excessive entry
-/// counts are all rejected. Payload SHA-256 values from the signed manifest are
+/// counts are all rejected. Payload SHA-256 values from the checksummed manifest are
 /// checked while the bytes stream to staging; no book is ever held in memory.
 abstract final class BackupArchive {
   /// Reads and validates the manifest and container structure without writing
@@ -102,7 +102,9 @@ abstract final class BackupArchive {
           if (error is FormatException || error is BackupCancelledException) {
             rethrow;
           }
-          throw FormatException('Could not read ${entry.path} from the backup.');
+          throw FormatException(
+            'Could not read ${entry.path} from the backup.',
+          );
         }
         await output.close();
         final int actualLength = await target.length();
@@ -126,10 +128,20 @@ abstract final class BackupArchive {
         );
       }
 
-      final File database = File('${staging.path}${Platform.pathSeparator}database.json');
-      final File settings = File('${staging.path}${Platform.pathSeparator}settings.json');
-      final List<int> databaseBytes = await _readBounded(database, PaperConfig.maxBackupJsonBytes);
-      final List<int> settingsBytes = await _readBounded(settings, PaperConfig.maxBackupJsonBytes);
+      final File database = File(
+        '${staging.path}${Platform.pathSeparator}database.json',
+      );
+      final File settings = File(
+        '${staging.path}${Platform.pathSeparator}settings.json',
+      );
+      final List<int> databaseBytes = await _readBounded(
+        database,
+        PaperConfig.maxBackupJsonBytes,
+      );
+      final List<int> settingsBytes = await _readBounded(
+        settings,
+        PaperConfig.maxBackupJsonBytes,
+      );
       onProgress?.call(
         const BackupProgress(fraction: 1, message: 'Backup verified'),
       );
@@ -151,7 +163,8 @@ abstract final class BackupArchive {
       throw const FormatException('That backup file is no longer available.');
     }
     final int archiveLength = file.lengthSync();
-    if (archiveLength < 32 || archiveLength > PaperConfig.maxBackupUncompressedBytes) {
+    if (archiveLength < 32 ||
+        archiveLength > PaperConfig.maxBackupUncompressedBytes) {
       throw const FormatException('That file is not a valid PaperOS backup.');
     }
     final InputFileStream input = InputFileStream(archivePath);
@@ -165,10 +178,14 @@ abstract final class BackupArchive {
       if (directory.fileHeaders.isEmpty) {
         throw const FormatException('That ZIP archive is empty.');
       }
-      if (directory.totalCentralDirectoryEntries != directory.fileHeaders.length ||
-          directory.totalCentralDirectoryEntriesOnThisDisk != directory.fileHeaders.length ||
+      if (directory.totalCentralDirectoryEntries !=
+              directory.fileHeaders.length ||
+          directory.totalCentralDirectoryEntriesOnThisDisk !=
+              directory.fileHeaders.length ||
           directory.numberOfThisDisk != 0) {
-        throw const FormatException('The backup ZIP directory is inconsistent.');
+        throw const FormatException(
+          'The backup ZIP directory is inconsistent.',
+        );
       }
       if (directory.fileHeaders.length > PaperConfig.maxBackupEntries) {
         throw FormatException(
@@ -238,7 +255,10 @@ abstract final class BackupArchive {
         checksumHeader.uncompressedSize > 1024) {
       throw const FormatException('The backup manifest is too large.');
     }
-    final List<int> manifestBytes = _readEntry(manifestHeader, PaperConfig.maxBackupManifestBytes);
+    final List<int> manifestBytes = _readEntry(
+      manifestHeader,
+      PaperConfig.maxBackupManifestBytes,
+    );
     final List<int> checksumBytes = _readEntry(checksumHeader, 1024);
     final String checksumText;
     try {
@@ -287,6 +307,14 @@ abstract final class BackupArchive {
         '(${manifest.schemaVersion}).',
       );
     }
+    // The preview must reject exactly what extraction would reject, otherwise
+    // the user can confirm a restore that is guaranteed to fail later.
+    if (manifest.counts.documents > PaperConfig.maxBackupDocuments) {
+      throw FormatException(
+        'This backup contains more than '
+        '${PaperConfig.maxBackupDocuments} documents.',
+      );
+    }
 
     const Set<String> metaPaths = <String>{'database.json', 'settings.json'};
     final Set<String> manifestPaths = <String>{
@@ -312,16 +340,26 @@ abstract final class BackupArchive {
       }
       switch (entry.type) {
         case BackupEntryType.database:
-          if (entry.path != 'database.json' || databaseEntries++ > 0) {
-            throw const FormatException('The backup database entry is invalid.');
+          if (entry.path != 'database.json' ||
+              entry.byteSize > PaperConfig.maxBackupJsonBytes ||
+              databaseEntries++ > 0) {
+            throw const FormatException(
+              'The backup database entry is invalid.',
+            );
           }
         case BackupEntryType.settings:
-          if (entry.path != 'settings.json' || settingsEntries++ > 0) {
-            throw const FormatException('The backup settings entry is invalid.');
+          if (entry.path != 'settings.json' ||
+              entry.byteSize > PaperConfig.maxBackupJsonBytes ||
+              settingsEntries++ > 0) {
+            throw const FormatException(
+              'The backup settings entry is invalid.',
+            );
           }
         case BackupEntryType.book:
           if (!_isFlatEntry(entry.path, 'books/')) {
-            throw const FormatException('The backup has a misplaced book file.');
+            throw const FormatException(
+              'The backup has a misplaced book file.',
+            );
           }
           libraryBytes += entry.byteSize;
         case BackupEntryType.cover:
@@ -366,7 +404,9 @@ abstract final class BackupArchive {
     try {
       header.file!.decompress(output);
       if (output.length > maxBytes) {
-        throw const FormatException('A metadata file in the backup is too large.');
+        throw const FormatException(
+          'A metadata file in the backup is too large.',
+        );
       }
       return output.getBytes().toList(growable: false);
     } catch (error) {
@@ -376,7 +416,9 @@ abstract final class BackupArchive {
   }
 
   static Future<String> _hashFile(File file) async {
-    final crypto.Digest digest = await crypto.sha256.bind(file.openRead()).first;
+    final crypto.Digest digest = await crypto.sha256
+        .bind(file.openRead())
+        .first;
     return digest.toString();
   }
 
@@ -449,5 +491,3 @@ class _ArchiveSession {
     }
   }
 }
-
-

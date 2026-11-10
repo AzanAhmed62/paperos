@@ -24,7 +24,7 @@ still requires a device.
 
 | Area | Standard | E-Ink Friendly |
 | --- | --- | --- |
-| Motion | Short 220 ms theme transition and 180 ms overlay fade | Route overlays render without the fade; `MediaQuery.disableAnimations` is true; theme animation duration is zero |
+| Motion | Short 220 ms theme/overlay transition | Route overlays, sheets and dialogs use zero duration; `MediaQuery.disableAnimations` is true; theme animation duration is zero |
 | Home clock | Rebuilds every second | One one-shot timer lands 40 ms after the next minute boundary |
 | Reader flow | The stored paged/scroll choice | Forced to paged at render time; the stored choice is unchanged |
 | Page turns | The stored tap/swipe/both choice | Forced to tap zones at render time |
@@ -34,7 +34,8 @@ still requires a device.
 | Touch targets | 44/32 logical pixels | 48/40 logical pixels |
 | Contrast | Selected paper palette | Higher-contrast rules, secondary text and selection fill |
 | Selection | 20% selection fill | 34% selection fill |
-| Loading and chrome | Normal animations | Animation durations from the policy are zero |
+| Loading and chrome | Normal animations | Indeterminate spinners become a static quarter ring; chrome slides use the zero policy duration |
+| Scrolling | Platform fling and overscroll glow/stretch | Drag still moves the list, but lift-off fling is disabled and the overscroll decoration is removed |
 
 The clock does not rebuild 60 times a minute for a value that changes once a
 minute. A fresh minute boundary schedules a full 60-second delay plus the 40 ms
@@ -44,13 +45,20 @@ safety margin, rather than a tight zero-duration timer.
 
 - `PaperApp` watches `displayPolicyProvider`, applies the high-contrast palette,
   publishes `DisplayPolicyScope`, and sets `MediaQuery.disableAnimations`.
-- The router's custom overlay transition returns its child immediately when
-  animations are disabled.
+- The router reads `navigationDuration` from `DisplayPolicyScope`; E-Ink
+  resolves it to zero, and the transition builder also returns its child
+  immediately when animations are disabled.
+- `PaperApp` installs `PaperScrollBehavior`, which disables fling and the
+  overscroll indicator only for the E-Ink profile.
 - `PaperHomeScreen` schedules the clock with `nextClockDelay` and reschedules
   when the profile changes.
 - `ReaderController` and `ReaderScreen` apply `readerSettingsForDisplay` to a
   copy; they never write those adjusted values back to Settings.
-- Shared `Paper` widgets enlarge their minimum interactive size.
+- Shared `Paper` widgets enlarge their minimum interactive size, use a static
+  progress ring, and keep the full 48 dp chip target.
+- The reader settings sheet shows the effective E-Ink font size, spacing,
+  margins, flow and page-turn mode, and disables the two choices the profile
+  forces, so it never claims a stored value is active when it is not.
 - The reader's chrome timer respects `autoHideReaderChrome`.
 - Settings shows the active profile and an honest capability summary.
 

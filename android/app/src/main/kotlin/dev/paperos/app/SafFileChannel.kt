@@ -234,6 +234,15 @@ class SafFileChannel(private val context: Context) {
             }
             main.post { current.result.success(true) }
         } catch (error: Throwable) {
+            // The provider may have created the document before the copy
+            // failed. Delete our partial output so the user is not left with a
+            // truncated file that looks like a usable backup. Best effort:
+            // some providers do not implement delete.
+            try {
+                context.contentResolver.delete(uri, null, null)
+            } catch (_: Throwable) {
+                // Nothing else can be done; report the original failure.
+            }
             fail(current.result, ERROR_IO, "PaperOS could not save the backup.", error.toString())
         }
     }

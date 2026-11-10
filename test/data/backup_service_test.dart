@@ -95,21 +95,22 @@ void main() {
     final File cover = File(p.join(covers.path, '$id.jpg'));
     await book.writeAsBytes(<int>[80, 75, 3, 4, 1, 2, 3, 4], flush: true);
     await cover.writeAsBytes(<int>[255, 216, 255, 9], flush: true);
-    final Document document = makeDocument(
-      id: id,
-      title: title,
-      format: DocumentFormat.epub,
-      localPath: book.path,
-    ).copyWith(
-      author: 'Ada Lovelace',
-      publisher: 'Paper Press',
-      language: 'en',
-      identifier: 'urn:isbn:1',
-      description: 'A test book.',
-      coverPath: cover.path,
-      fingerprint: 'fingerprint-$id',
-      byteSize: 8,
-    );
+    final Document document =
+        makeDocument(
+          id: id,
+          title: title,
+          format: DocumentFormat.epub,
+          localPath: book.path,
+        ).copyWith(
+          author: 'Ada Lovelace',
+          publisher: 'Paper Press',
+          language: 'en',
+          identifier: 'urn:isbn:1',
+          description: 'A test book.',
+          coverPath: cover.path,
+          fingerprint: 'fingerprint-$id',
+          byteSize: 8,
+        );
     await documents.insert(document);
     return document;
   }
@@ -162,9 +163,7 @@ void main() {
     );
     await settingsRepository.save(custom);
 
-    final BackupResult created = await service.createBackup(
-      settings: custom,
-    );
+    final BackupResult created = await service.createBackup(settings: custom);
     expect(await File(created.path).exists(), isTrue);
     final BackupPreview preview = await service.inspect(
       archivePath: created.path,
@@ -283,70 +282,76 @@ void main() {
     expect(after.counts, before.counts);
   });
 
-  test('a damaged payload is refused and does not replace the library', () async {
-    await seedEverything();
-    final BackupResult backup = await service.createBackup(
-      settings: const AppSettings.defaults(),
-    );
-    final byte0 = backup.manifest.entries
-        .firstWhere((e) => e.type.id == 'book')
-        .path;
-    final String damaged = p.join(temporary.path, 'damaged.paperosbackup');
-    await _rewriteArchive(backup.path, damaged, (Archive archive) {
-      final int index = archive.files.indexWhere(
-        (ArchiveFile file) => file.name == byte0,
+  test(
+    'a damaged payload is refused and does not replace the library',
+    () async {
+      await seedEverything();
+      final BackupResult backup = await service.createBackup(
+        settings: const AppSettings.defaults(),
       );
-      final ArchiveFile file = archive.files[index];
-      final List<int> bytes = List<int>.of(file.content, growable: true);
-      bytes[0] = (bytes[0] + 1) & 0xff;
-      archive.modifyAtIndex(index, ArchiveFile.bytes(file.name, bytes));
-    });
-    final BackupPreview damagedPreview = await service.inspect(
-      archivePath: damaged,
-      displayName: 'damaged.paperosbackup',
-    );
-    final DatabaseSnapshot before = await _snapshot(opener);
-
-    await expectLater(
-      service.restore(
-        preview: damagedPreview,
-        currentSettings: const AppSettings.defaults(),
-      ),
-      throwsA(isA<PaperException>()),
-    );
-    final DatabaseSnapshot after = await _snapshot(opener);
-    expect(after.counts, before.counts);
-    expect((await documents.findById('doc-1'))!.title, 'A Paper Book');
-  });
-
-  test('inspect refuses a manifest entry whose attachment is missing', () async {
-    await seedEverything();
-    final BackupResult backup = await service.createBackup(
-      settings: const AppSettings.defaults(),
-    );
-    final String bookPath = backup.manifest.entries
-        .firstWhere((e) => e.type.id == 'book')
-        .path;
-    final String missing = p.join(temporary.path, 'missing.paperosbackup');
-    await _rewriteArchive(backup.path, missing, (Archive archive) {
-      archive.removeAt(
-        archive.files.indexWhere((ArchiveFile file) => file.name == bookPath),
+      final byte0 = backup.manifest.entries
+          .firstWhere((e) => e.type.id == 'book')
+          .path;
+      final String damaged = p.join(temporary.path, 'damaged.paperosbackup');
+      await _rewriteArchive(backup.path, damaged, (Archive archive) {
+        final int index = archive.files.indexWhere(
+          (ArchiveFile file) => file.name == byte0,
+        );
+        final ArchiveFile file = archive.files[index];
+        final List<int> bytes = List<int>.of(file.content, growable: true);
+        bytes[0] = (bytes[0] + 1) & 0xff;
+        archive.modifyAtIndex(index, ArchiveFile.bytes(file.name, bytes));
+      });
+      final BackupPreview damagedPreview = await service.inspect(
+        archivePath: damaged,
+        displayName: 'damaged.paperosbackup',
       );
-    });
-    await expectLater(
-      service.inspect(
-        archivePath: missing,
-        displayName: 'missing.paperosbackup',
-      ),
-      throwsA(
-        isA<PaperException>().having(
-          (PaperException error) => error.message,
-          'message',
-          contains('missing'),
+      final DatabaseSnapshot before = await _snapshot(opener);
+
+      await expectLater(
+        service.restore(
+          preview: damagedPreview,
+          currentSettings: const AppSettings.defaults(),
         ),
-      ),
-    );
-  });
+        throwsA(isA<PaperException>()),
+      );
+      final DatabaseSnapshot after = await _snapshot(opener);
+      expect(after.counts, before.counts);
+      expect((await documents.findById('doc-1'))!.title, 'A Paper Book');
+    },
+  );
+
+  test(
+    'inspect refuses a manifest entry whose attachment is missing',
+    () async {
+      await seedEverything();
+      final BackupResult backup = await service.createBackup(
+        settings: const AppSettings.defaults(),
+      );
+      final String bookPath = backup.manifest.entries
+          .firstWhere((e) => e.type.id == 'book')
+          .path;
+      final String missing = p.join(temporary.path, 'missing.paperosbackup');
+      await _rewriteArchive(backup.path, missing, (Archive archive) {
+        archive.removeAt(
+          archive.files.indexWhere((ArchiveFile file) => file.name == bookPath),
+        );
+      });
+      await expectLater(
+        service.inspect(
+          archivePath: missing,
+          displayName: 'missing.paperosbackup',
+        ),
+        throwsA(
+          isA<PaperException>().having(
+            (PaperException error) => error.message,
+            'message',
+            contains('missing'),
+          ),
+        ),
+      );
+    },
+  );
 
   test('rejects a future backup manifest before touching live data', () async {
     final Map<String, Object?> json = <String, Object?>{
@@ -379,25 +384,51 @@ void main() {
     );
   });
 
-  test('inspect rejects path traversal without decompressing payloads', () async {
-    final String path = p.join(temporary.path, 'traversal.paperosbackup');
-    final Archive archive = Archive();
-    archive.addFile(
-      ArchiveFile(
-        '../outside.txt',
-        3,
-        <int>[1, 2, 3],
-      ),
-    );
-    await File(path).writeAsBytes(
-      ZipEncoder().encode(archive),
-      flush: true,
-    );
+  test('malformed manifest list fields are rejected as format errors', () {
+    final Map<String, Object?> json = <String, Object?>{
+      'format': PaperConfig.backupFormat,
+      'version': PaperConfig.backupFormatVersion,
+      'appVersion': '1.2.0',
+      'schemaVersion': PaperConfig.databaseVersion,
+      'createdAt': DateTime.utc(2026).toIso8601String(),
+      'counts': <String, Object?>{
+        'documents': 0,
+        'bookmarks': 0,
+        'annotations': 0,
+        'notes': 0,
+        'tasks': 0,
+        'locations': 0,
+      },
+      'entries': 'not-a-list',
+      'libraryBytes': 0,
+      'warnings': <Object?>[],
+    };
     expect(
-      () => BackupArchive.inspect(path),
+      () => BackupManifest.fromJson(json),
+      throwsA(isA<FormatException>()),
+    );
+
+    json['entries'] = <Object?>[];
+    json['warnings'] = 'not-a-list';
+    expect(
+      () => BackupManifest.fromJson(json),
       throwsA(isA<FormatException>()),
     );
   });
+
+  test(
+    'inspect rejects path traversal without decompressing payloads',
+    () async {
+      final String path = p.join(temporary.path, 'traversal.paperosbackup');
+      final Archive archive = Archive();
+      archive.addFile(ArchiveFile('../outside.txt', 3, <int>[1, 2, 3]));
+      await File(path).writeAsBytes(ZipEncoder().encode(archive), flush: true);
+      expect(
+        () => BackupArchive.inspect(path),
+        throwsA(isA<FormatException>()),
+      );
+    },
+  );
 }
 
 class DatabaseSnapshot {
@@ -433,8 +464,6 @@ Future<void> _rewriteArchive(
     await File(source).readAsBytes(),
   );
   mutate(archive);
-  await File(destination).writeAsBytes(
-    ZipEncoder().encode(archive),
-    flush: true,
-  );
+  await File(destination)
+      .writeAsBytes(ZipEncoder().encode(archive), flush: true);
 }

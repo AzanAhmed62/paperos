@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../app/providers.dart';
 import '../../../config/app_config.dart';
 import '../../../core/display/display_policy.dart';
@@ -53,6 +54,7 @@ class ReaderScreen extends ConsumerStatefulWidget {
 
 class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   Size _pageViewport = Size.zero;
+  TextScaler? _reportedTextScaler;
   Timer? _chromeTimer;
   bool _reportedViewport = false;
   late final KeepAwakeService _keepAwake;
@@ -91,8 +93,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   /// is still deciding.
   void _armChromeTimer(bool chromeVisible, [DisplayPolicy? policy]) {
     _chromeTimer?.cancel();
-    final DisplayPolicy display =
-        policy ?? ref.read(displayPolicyProvider);
+    final DisplayPolicy display = policy ?? ref.read(displayPolicyProvider);
     if (!chromeVisible || !display.autoHideReaderChrome) return;
     _chromeTimer = Timer(PaperConfig.readerChromeAutoHide, () {
       if (!mounted) return;
@@ -221,13 +222,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   void _onViewport(Size size) {
-    if (size.isEmpty || size == _pageViewport) return;
+    if (size.isEmpty) return;
+    final TextScaler scaler = MediaQuery.textScalerOf(context);
+    if (size == _pageViewport && scaler == _reportedTextScaler) return;
     _pageViewport = size;
+    _reportedTextScaler = scaler;
     _reportedViewport = true;
     // Text pagination is measured against the page area, which is only known
     // after the first layout, so the session is told about it a frame later.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _session.setViewport(size);
+      if (mounted) _session.setViewport(size, textScaler: scaler);
     });
   }
 
@@ -283,6 +287,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   Future<void> _showBookmarks(ReaderState state) async {
     await showModalBottomSheet<void>(
       context: context,
+      sheetAnimationStyle: paperModalAnimationStyle(context),
       backgroundColor: paperPalette(context).canvas,
       barrierColor: paperPalette(context).ink.withValues(alpha: 0.32),
       shape: const RoundedRectangleBorder(),
@@ -300,6 +305,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     }
     await showModalBottomSheet<void>(
       context: context,
+      sheetAnimationStyle: paperModalAnimationStyle(context),
       isScrollControlled: true,
       backgroundColor: paperPalette(context).canvas,
       barrierColor: paperPalette(context).ink.withValues(alpha: 0.32),
@@ -312,6 +318,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   Future<void> _showSearch() async {
     await showModalBottomSheet<void>(
       context: context,
+      sheetAnimationStyle: paperModalAnimationStyle(context),
       isScrollControlled: true,
       backgroundColor: paperPalette(context).canvas,
       barrierColor: paperPalette(context).ink.withValues(alpha: 0.32),
@@ -323,12 +330,17 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   Future<void> _showAnnotations() async {
     await showModalBottomSheet<void>(
       context: context,
+      sheetAnimationStyle: paperModalAnimationStyle(context),
       isScrollControlled: true,
       backgroundColor: paperPalette(context).canvas,
       barrierColor: paperPalette(context).ink.withValues(alpha: 0.32),
       shape: const RoundedRectangleBorder(),
-      builder: (BuildContext sheetContext) =>
-          _AnnotationsSheet(documentId: widget.documentId),
+      builder: (BuildContext sheetContext) => _AnnotationsSheet(
+        documentId: widget.documentId,
+        onExportMarkdown: () =>
+            _exportAnnotations(AnnotationExportFormat.markdown),
+        onExportJson: () => _exportAnnotations(AnnotationExportFormat.json),
+      ),
     );
   }
 
@@ -355,6 +367,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   Future<void> _showReadingSettings() async {
     await showModalBottomSheet<void>(
       context: context,
+      sheetAnimationStyle: paperModalAnimationStyle(context),
       isScrollControlled: true,
       backgroundColor: paperPalette(context).canvas,
       barrierColor: paperPalette(context).ink.withValues(alpha: 0.32),
@@ -368,12 +381,18 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Report the initial viewport as soon as a frame exists, so a text
-    // document opened directly does not show a single un-paginated screen.
-    if (!_reportedViewport) {
+    // The system font scale can change while the reader is open (or after the
+    // app resumes with a different accessibility setting). Measured text pages
+    // are only valid for one scale, so report the viewport again and let the
+    // session re-paginate at the new scale.
+    final TextScaler scaler = MediaQuery.textScalerOf(context);
+    if (_reportedViewport && scaler != _reportedTextScaler) {
+      _reportedTextScaler = scaler;
+      final Size size = _pageViewport;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || _pageViewport != Size.zero) return;
-        _session.setViewport(_pageViewport);
+        if (mounted && !size.isEmpty) {
+          _session.setViewport(size, textScaler: scaler);
+        }
       });
     }
   }
@@ -1713,9 +1732,15 @@ class _SearchSheetState extends State<_SearchSheet> {
 /// The annotation library for the open document. Unresolved anchors remain
 /// visible with their excerpt and note instead of disappearing.
 class _AnnotationsSheet extends ConsumerWidget {
-  const _AnnotationsSheet({required this.documentId});
+  const _AnnotationsSheet({
+    required this.documentId,
+    required this.onExportMarkdown,
+    required this.onExportJson,
+  });
 
   final String documentId;
+  final VoidCallback onExportMarkdown;
+  final VoidCallback onExportJson;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1743,6 +1768,41 @@ class _AnnotationsSheet extends ConsumerWidget {
               onClose: () => Navigator.of(context).pop(),
             ),
             const PaperRule(strong: true),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                PaperSpace.gutter,
+                PaperSpace.sm,
+                PaperSpace.gutter,
+                PaperSpace.xs,
+              ),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      'Export this book’s notes',
+                      style: PaperTypography.of(context).caption
+                          .copyWith(color: palette.inkFaint),
+                    ),
+                  ),
+                  PaperButton(
+                    label: 'Markdown',
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      onExportMarkdown();
+                    },
+                  ),
+                  const SizedBox(width: PaperSpace.sm),
+                  PaperButton(
+                    label: 'JSON',
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      onExportJson();
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const PaperRule(inset: PaperSpace.gutter),
             if (current.annotations.isEmpty)
               Expanded(
                 child: Center(
@@ -1809,6 +1869,7 @@ class _AnnotationsSheet extends ConsumerWidget {
   ) async {
     final bool? confirmed = await showDialog<bool>(
       context: context,
+      animationStyle: paperModalAnimationStyle(context),
       builder: (BuildContext dialogContext) {
         return AlertDialog(
           backgroundColor: paperPalette(context).canvas,
@@ -1944,6 +2005,11 @@ class _ReadingSettingsSheet extends ConsumerWidget {
     final PaperTypography type = PaperTypography.of(context);
     final AppSettings settings = ref.watch(settingsProvider);
     final ReaderSettings reader = settings.reader;
+    final DisplayPolicy display = ref.watch(displayPolicyProvider);
+    // What the reader actually renders with, which differs from the stored
+    // values while E-Ink Friendly is active. Showing the stored values here
+    // would make the sheet lie about the page it is sitting on.
+    final ReaderSettings effective = readerSettingsForDisplay(reader, display);
     final SettingsController controller = ref.read(settingsProvider.notifier);
 
     // Two kinds of change. Layout settings must reach the open session, which
@@ -1985,7 +2051,7 @@ class _ReadingSettingsSheet extends ConsumerWidget {
             const PaperRule(strong: true),
             PaperStepper(
               label: 'Text size',
-              display: '${(reader.fontSize * 100).round()}%',
+              display: '${(effective.fontSize * 100).round()}%',
               canDecrease: reader.fontSize > 0.85,
               canIncrease: reader.fontSize < 1.6,
               onDecrease: () => applyLayout(
@@ -1998,7 +2064,7 @@ class _ReadingSettingsSheet extends ConsumerWidget {
             const PaperRule(inset: PaperSpace.gutter),
             PaperStepper(
               label: 'Line spacing',
-              display: reader.lineHeight.toStringAsFixed(2),
+              display: effective.lineHeight.toStringAsFixed(2),
               canDecrease: reader.lineHeight > 1.25,
               canIncrease: reader.lineHeight < 2.1,
               onDecrease: () => applyLayout(
@@ -2011,7 +2077,7 @@ class _ReadingSettingsSheet extends ConsumerWidget {
             const PaperRule(inset: PaperSpace.gutter),
             PaperStepper(
               label: 'Margins',
-              display: '${reader.margin.round()} px',
+              display: '${effective.margin.round()} px',
               canDecrease: reader.margin > 12,
               canIncrease: reader.margin < 64,
               onDecrease: () => applyLayout(
@@ -2025,14 +2091,18 @@ class _ReadingSettingsSheet extends ConsumerWidget {
             if (session.epubBackend != null) ...<Widget>[
               PaperSettingRow(
                 label: 'Flow',
-                subtitle: 'Paged suits e-ink; scrolling suits long sessions.',
+                subtitle: display.isEink
+                    ? 'E-Ink Friendly reads in pages. Scrolling returns with '
+                          'the Standard profile.'
+                    : 'Paged suits e-ink; scrolling suits long sessions.',
                 trailing: Wrap(
                   spacing: PaperSpace.xs,
                   children: <Widget>[
                     for (final ReaderFlow flow in ReaderFlow.values)
                       PaperChip(
                         label: flow.label,
-                        selected: reader.flow == flow,
+                        selected: effective.flow == flow,
+                        enabled: !display.isEink,
                         onTap: () =>
                             applyLayout(() => controller.setReaderFlow(flow)),
                       ),
@@ -2059,14 +2129,18 @@ class _ReadingSettingsSheet extends ConsumerWidget {
             const PaperRule(inset: PaperSpace.gutter),
             PaperSettingRow(
               label: 'Page turns',
-              subtitle: 'Tap zones suit e-ink; swipe suits a scrolling habit.',
+              subtitle: display.isEink
+                  ? 'E-Ink Friendly uses tap zones. Swipe returns with the '
+                        'Standard profile.'
+                  : 'Tap zones suit e-ink; swipe suits a scrolling habit.',
               trailing: Wrap(
                 spacing: PaperSpace.xs,
                 children: <Widget>[
                   for (final PageTurnMode mode in PageTurnMode.values)
                     PaperChip(
                       label: mode.label,
-                      selected: reader.turnMode == mode,
+                      selected: effective.turnMode == mode,
+                      enabled: !display.isEink,
                       onTap: () => store(() => controller.setTurnMode(mode)),
                     ),
                 ],

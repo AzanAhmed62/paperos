@@ -15,6 +15,16 @@ import '../../theme/paper_typography.dart';
 PaperPalette paperPalette(BuildContext context) =>
     PaperPalette.of(PaperTypography.of(context).palette.style);
 
+/// Animation override for framework-created modal surfaces.
+///
+/// The E-Ink profile must reach sheets and dialogs too, not only the routes
+/// PaperOS builds itself: both are pushed on the Navigator above this widget
+/// and would otherwise keep Material's enter/exit animation.
+AnimationStyle? paperModalAnimationStyle(BuildContext context) =>
+    DisplayPolicyScope.of(context).reduceMotion
+    ? AnimationStyle.noAnimation
+    : null;
+
 /// The screen background plus a hairline divider used as the closing edge of a
 /// section.
 class PaperSection extends StatelessWidget {
@@ -323,12 +333,17 @@ class PaperChip extends StatelessWidget {
     required this.selected,
     required this.onTap,
     this.leading,
+    this.enabled = true,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
   final Widget? leading;
+
+  /// A disabled chip still shows the effective state but cannot be changed.
+  /// The reading settings use this for choices the E-Ink profile forces.
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -339,13 +354,16 @@ class PaperChip extends StatelessWidget {
 
     return Semantics(
       button: true,
+      enabled: enabled,
       selected: selected,
       child: InkWell(
-        onTap: onTap,
+        onTap: enabled ? onTap : null,
         splashFactory: NoSplash.splashFactory,
         child: Container(
           constraints: BoxConstraints(
-            minHeight: display.largeTargets ? 40 : 32,
+            // E-Ink uses the full 48dp accessibility touch target; the
+            // standard profile keeps the compact type-first chip.
+            minHeight: display.largeTargets ? 48 : 32,
           ),
           padding: EdgeInsets.symmetric(
             horizontal: PaperSpace.md,
@@ -432,6 +450,44 @@ class PaperEmptyState extends StatelessWidget {
   }
 }
 
+/// A quiet progress indicator that respects the display profile.
+///
+/// An indeterminate spinner repaints forever and smears on an electrophoretic
+/// panel. The E-Ink profile therefore draws a static quarter ring; the standard
+/// profile keeps the ordinary animation.
+class PaperProgress extends StatelessWidget {
+  const PaperProgress({
+    super.key,
+    this.size = 18,
+    this.strokeWidth = 1.5,
+    this.semanticsLabel,
+  });
+
+  final double size;
+  final double strokeWidth;
+  final String? semanticsLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final PaperPalette palette = paperPalette(context);
+    final DisplayPolicy display = DisplayPolicyScope.of(context);
+
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Semantics(
+        label: semanticsLabel,
+        child: CircularProgressIndicator(
+          strokeWidth: strokeWidth,
+          backgroundColor: palette.rule,
+          value: display.reduceMotion ? 0.25 : null,
+          valueColor: AlwaysStoppedAnimation<Color>(palette.ink),
+        ),
+      ),
+    );
+  }
+}
+
 /// Centred, quiet progress indicator used while a screen's data is loading.
 class PaperLoading extends StatelessWidget {
   const PaperLoading({super.key, this.label});
@@ -440,26 +496,13 @@ class PaperLoading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final PaperPalette palette = paperPalette(context);
     final PaperTypography type = PaperTypography.of(context);
-    final DisplayPolicy display = DisplayPolicyScope.of(context);
 
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          SizedBox(
-            width: 18,
-            height: 18,
-            child: CircularProgressIndicator(
-              strokeWidth: 1.5,
-              backgroundColor: palette.rule,
-              // An indeterminate spinner repaints forever. In the E-Ink
-              // profile use a static quarter ring instead.
-              value: display.reduceMotion ? 0.25 : null,
-              valueColor: AlwaysStoppedAnimation<Color>(palette.ink),
-            ),
-          ),
+          PaperProgress(semanticsLabel: label ?? 'Loading'),
           if (label != null) ...<Widget>[
             const SizedBox(height: PaperSpace.md),
             Text(label!, style: type.bodyQuiet),
@@ -955,6 +998,7 @@ Future<String?> showPaperTextPrompt(
 }) {
   return showModalBottomSheet<String>(
     context: context,
+    sheetAnimationStyle: paperModalAnimationStyle(context),
     isScrollControlled: true,
     backgroundColor: paperPalette(context).canvas,
     barrierColor: paperPalette(context).ink.withValues(alpha: 0.32),
@@ -1111,6 +1155,7 @@ Future<bool> confirmDestructiveAction(
 
   final bool? confirmed = await showDialog<bool>(
     context: context,
+    animationStyle: paperModalAnimationStyle(context),
     barrierColor: palette.ink.withValues(alpha: 0.32),
     builder: (BuildContext dialogContext) {
       return Dialog(

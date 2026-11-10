@@ -7,6 +7,7 @@ import '../features/display/application/display_providers.dart';
 import '../features/files/application/external_open_controller.dart';
 import '../features/settings/application/settings_controller.dart';
 import '../features/settings/domain/app_settings.dart';
+import '../theme/paper_scroll_behavior.dart';
 import '../theme/paper_theme.dart';
 import '../theme/paper_typography.dart';
 import 'router.dart';
@@ -66,6 +67,7 @@ class _PaperAppState extends ConsumerState<PaperApp>
           serifReading: settings.appearance.serifReading,
         ),
         einkFriendly: display.isEink,
+        selectionOpacity: display.selectionOpacity,
       ),
       routerConfig: appRouter,
       builder: (BuildContext context, Widget? child) {
@@ -76,17 +78,21 @@ class _PaperAppState extends ConsumerState<PaperApp>
         //
         // The display policy is exposed both as an inherited value (for small
         // shared widgets) and as MediaQuery.disableAnimations (for framework
-        // routes and selection overlays). That makes "instant" apply to pushes,
-        // sheets and dialogs, not just the screens PaperOS draws itself.
+        // widgets and PaperOS-owned transitions). The system's own accessibility
+        // preference is never overridden: E-Ink adds motion reduction, it does
+        // not remove the user's.
         final MediaQueryData media = MediaQuery.of(context);
         Widget content = MediaQuery(
           data: media.copyWith(
-            disableAnimations: display.reduceMotion,
+            disableAnimations: display.reduceMotion || media.disableAnimations,
             highContrast: display.highContrast || media.highContrast,
           ),
-          child: DisplayPolicyScope(
-            policy: display,
-            child: child ?? const SizedBox.shrink(),
+          child: ScrollConfiguration(
+            behavior: PaperScrollBehavior(reduceMotion: display.reduceMotion),
+            child: DisplayPolicyScope(
+              policy: display,
+              child: child ?? const SizedBox.shrink(),
+            ),
           ),
         );
         return content;

@@ -223,6 +223,7 @@ class _TaskTile extends ConsumerWidget {
 
     await showModalBottomSheet<void>(
       context: context,
+      sheetAnimationStyle: paperModalAnimationStyle(context),
       backgroundColor: paperPalette(context).canvas,
       barrierColor: paperPalette(context).ink.withValues(alpha: 0.32),
       shape: const RoundedRectangleBorder(),

@@ -106,7 +106,9 @@ class BackupCounts {
     'locations',
   ];
 
-  static BackupCounts fromTables(Map<String, List<Map<String, Object?>>> tables) {
+  static BackupCounts fromTables(
+    Map<String, List<Map<String, Object?>>> tables,
+  ) {
     return BackupCounts(
       documents: tables['documents']?.length ?? 0,
       bookmarks: tables['bookmarks']?.length ?? 0,
@@ -156,7 +158,7 @@ class BackupCounts {
   }
 }
 
-/// The signed index of a PaperOS backup.
+/// The checksummed index of a PaperOS backup.
 class BackupManifest {
   const BackupManifest({
     required this.format,
@@ -195,7 +197,9 @@ class BackupManifest {
     'createdAt': createdAt.toUtc().toIso8601String(),
     'counts': counts.toJson(),
     'libraryBytes': libraryBytes,
-    'entries': <Object?>[for (final BackupEntry entry in entries) entry.toJson()],
+    'entries': <Object?>[
+      for (final BackupEntry entry in entries) entry.toJson(),
+    ],
     'warnings': warnings,
   };
 
@@ -237,7 +241,7 @@ class BackupManifest {
       throw const FormatException('The backup has no row counts.');
     }
     final BackupCounts counts = BackupCounts.fromJson(countsJson);
-    final List<Object?>? rawEntries = json['entries'] as List<Object?>?;
+    final List<Object?>? rawEntries = _list(json['entries']);
     if (rawEntries == null) {
       throw const FormatException('The backup has no file list.');
     }
@@ -258,8 +262,17 @@ class BackupManifest {
     if (libraryBytes == null || libraryBytes < 0) {
       throw const FormatException('The backup has an invalid library size.');
     }
-    final List<Object?> warningsRaw =
-        (json['warnings'] as List<Object?>?) ?? const <Object?>[];
+    final List<Object?> warningsRaw;
+    final Object? rawWarnings = json['warnings'];
+    if (rawWarnings == null) {
+      warningsRaw = const <Object?>[];
+    } else {
+      final List<Object?>? list = _list(rawWarnings);
+      if (list == null) {
+        throw const FormatException('The backup warnings are not a list.');
+      }
+      warningsRaw = list;
+    }
     final List<String> warnings = <String>[];
     for (final Object? raw in warningsRaw) {
       if (raw is! String) {
@@ -321,6 +334,24 @@ int? _int(Object? value) {
 
 Map<String, Object?>? _map(Object? value) {
   if (value is Map<String, Object?>) return value;
-  if (value is Map) return value.cast<String, Object?>();
+  if (value is Map) {
+    try {
+      return value.cast<String, Object?>();
+    } on TypeError {
+      return null;
+    }
+  }
+  return null;
+}
+
+List<Object?>? _list(Object? value) {
+  if (value is List<Object?>) return value;
+  if (value is List) {
+    try {
+      return value.cast<Object?>();
+    } on TypeError {
+      return null;
+    }
+  }
   return null;
 }

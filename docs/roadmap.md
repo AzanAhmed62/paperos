@@ -1,8 +1,22 @@
 # Roadmap
 
-This roadmap records the state after v1.1 and keeps later work honest about the
+This roadmap records the state after v1.2 and keeps later work honest about the
 constraints that shaped the app. It is not a promise of dates or an invitation to
 add unrelated product surfaces.
+
+## Completed in v1.2
+
+- Local backup and validated replacement restore through SAF, with a safety
+  snapshot, checksummed manifest, archive limits and rollback protection.
+- Annotation export as Markdown and JSON, including orphan disclosure.
+- Standard / E-Ink Friendly display profiles, including reduced motion, static
+  progress, 48 dp targets, reader flow and page-turn policy, and a
+  policy-driven scroll physics.
+- Reader re-pagination when the system text scale changes, so accessibility
+  text cannot overflow a measured page.
+- Fail-closed release signing, unsigned analysis escape hatch, optimized release
+  configuration and a merged-manifest audit procedure.
+- 163 automated tests passing, with `dart format` and `flutter analyze` clean.
 
 ## Completed in v1.1
 
@@ -100,15 +114,14 @@ out of scope unless the engine decision is revisited.
 - keyboard and accessibility traversal for selection ranges;
 - a clearer note editor inside the annotation sheet;
 - deterministic ordering and filtering in the per-book annotation library;
-- optional local export of annotations in a plain, inspectable format;
 - stronger recovery UI for orphaned anchors.
 
 ### 4. Local reading data tools
 
-- local backup/export of the SQLite database and settings;
-- local import/restore with version checks;
 - explicit storage-usage report for documents, covers, and trash;
-- a non-destructive "verify library files" action.
+- a non-destructive "verify library files" action;
+- a user-facing list of safety snapshots, or removal of snapshots that cannot be
+  restored through the UI.
 
 These are local-only and must not become cloud sync.
 

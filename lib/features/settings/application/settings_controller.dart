@@ -38,9 +38,8 @@ class SettingsController extends Notifier<AppSettings> {
     ),
   );
 
-  Future<void> setDisplayProfile(DisplayProfile profile) => _write(
-    state.copyWith(display: state.display.copyWith(profile: profile)),
-  );
+  Future<void> setDisplayProfile(DisplayProfile profile) =>
+      _write(state.copyWith(display: state.display.copyWith(profile: profile)));
 
   /// Replaces in-memory state after a backup restore wrote the repository
   /// directly. Every screen watching this provider updates immediately.

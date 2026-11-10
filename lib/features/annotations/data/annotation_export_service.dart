@@ -71,8 +71,10 @@ abstract final class AnnotationExportBuilder {
         ..writeln();
     }
     md
-      ..writeln('Exported $exported from ${PaperConfig.appName} '
-          '${PaperConfig.versionLabel}.')
+      ..writeln(
+        'Exported $exported from ${PaperConfig.appName} '
+        '${PaperConfig.versionLabel}.',
+      )
       ..writeln()
       ..writeln(
         '${ordered.length} annotation${ordered.length == 1 ? '' : 's'}, '
@@ -138,7 +140,7 @@ abstract final class AnnotationExportBuilder {
         if (annotation.hasNote) {
           md
             ..writeln()
-            ..writeln('**Note:** ${_clean(annotation.note!)}');
+            ..writeln(_noteMarkdown(annotation.note!));
         }
         if (annotation.orphaned) {
           md
@@ -154,13 +156,9 @@ abstract final class AnnotationExportBuilder {
             '- Location: `${annotation.startLocator}` → '
             '`${annotation.endLocator}`',
           )
-          ..writeln(
-            '- Created: ${_dateTime(annotation.createdAt.toLocal())}',
-          );
+          ..writeln('- Created: ${_dateTime(annotation.createdAt.toLocal())}');
         if (annotation.updatedAt != annotation.createdAt) {
-          md.writeln(
-            '- Updated: ${_dateTime(annotation.updatedAt.toLocal())}',
-          );
+          md.writeln('- Updated: ${_dateTime(annotation.updatedAt.toLocal())}');
         }
         md.writeln();
       }
@@ -264,6 +262,22 @@ abstract final class AnnotationExportBuilder {
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
 
+  /// Notes are the reader's own prose. Unlike titles and excerpts, their
+  /// paragraph breaks are meaningful, so only line endings and trailing
+  /// whitespace are normalised. A single-line note stays inline; a multi-line
+  /// note becomes a block under its label so Markdown keeps the paragraphs.
+  static String _noteMarkdown(String note) {
+    final String cleaned = note
+        .replaceAll(RegExp(r'\r\n?'), '\n')
+        .split('\n')
+        .map((String line) => line.trimRight())
+        .join('\n')
+        .trim();
+    return cleaned.contains('\n')
+        ? '**Note:**\n\n$cleaned'
+        : '**Note:** $cleaned';
+  }
+
   static String _dateTime(DateTime date) {
     String two(int value) => value.toString().padLeft(2, '0');
     return '${date.year}-${two(date.month)}-${two(date.day)} '
@@ -286,7 +300,7 @@ class AnnotationExportService {
   final AnnotationRepository _annotations;
   final BookmarkRepository _bookmarks;
 
-  Future<AnnotationExport?> build(String documentId) async {
+  Future<AnnotationExport> build(String documentId) async {
     final Document? document = await _documents.findById(documentId);
     if (document == null) {
       throw const PaperException.missingFile(
@@ -307,8 +321,7 @@ class AnnotationExportService {
     String documentId,
     AnnotationExportFormat format,
   ) async {
-    final AnnotationExport? data = await build(documentId);
-    if (data == null) return null;
+    final AnnotationExport data = await build(documentId);
     final String contents = format == AnnotationExportFormat.markdown
         ? data.markdown
         : data.json;

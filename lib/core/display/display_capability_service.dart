@@ -46,8 +46,7 @@ abstract interface class DisplayCapabilityService {
 }
 
 /// The only implementation shipped in PaperOS 1.2.
-class ConservativeDisplayCapabilityService
-    implements DisplayCapabilityService {
+class ConservativeDisplayCapabilityService implements DisplayCapabilityService {
   const ConservativeDisplayCapabilityService();
 
   @override

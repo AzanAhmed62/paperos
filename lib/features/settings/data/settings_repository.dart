@@ -51,7 +51,32 @@ class SettingsRepository {
         (version is! int || version < 1 || version > documentVersion)) {
       throw FormatException('Unsupported settings version: $version');
     }
-    return AppSettings.fromJson(decoded);
+    // A backup is untrusted input. Reject a section with the wrong shape
+    // instead of silently replacing it with defaults, and turn the domain
+    // model's casts into a FormatException the restore path already handles.
+    for (final String section in const <String>[
+      'appearance',
+      'reader',
+      'launcher',
+      'home',
+      'display',
+    ]) {
+      final Object? value = decoded[section];
+      if (value != null && value is! Map) {
+        throw FormatException('Settings section "$section" is not an object.');
+      }
+    }
+    final Object? askOnExit = decoded['askOnExit'];
+    if (askOnExit != null && askOnExit is! bool) {
+      throw const FormatException('The askOnExit setting is not a boolean.');
+    }
+    try {
+      return AppSettings.fromJson(decoded);
+    } on TypeError {
+      throw const FormatException(
+        'Settings contain a value of the wrong type.',
+      );
+    }
   }
 
   String encode(AppSettings settings) => jsonEncode(_encode(settings));

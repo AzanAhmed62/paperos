@@ -138,6 +138,31 @@ void main() {
     ]);
   });
 
+  test('decode rejects a section with the wrong shape', () {
+    expect(
+      () => repository.decode(
+        jsonEncode(<String, Object?>{'appearance': <Object?>[]}),
+      ),
+      throwsFormatException,
+    );
+  });
+
+  test('decode turns wrong field types into a FormatException', () {
+    expect(
+      () => repository.decode(
+        jsonEncode(<String, Object?>{
+          'reader': <String, Object?>{'fontSize': 'huge'},
+        }),
+      ),
+      throwsFormatException,
+    );
+    expect(
+      () =>
+          repository.decode(jsonEncode(<String, Object?>{'askOnExit': 'yes'})),
+      throwsFormatException,
+    );
+  });
+
   test('a later save overwrites an earlier one', () async {
     await repository.save(const AppSettings());
     await repository.save(

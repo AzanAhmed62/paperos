@@ -111,7 +111,8 @@ class BackupService {
       onProgress?.call(
         const BackupProgress(fraction: 0, message: 'Reading the library'),
       );
-      final Map<String, List<Map<String, Object?>>> tables = await _snapshotTables();
+      final Map<String, List<Map<String, Object?>>> tables =
+          await _snapshotTables();
       final BackupCounts counts = BackupCounts.fromTables(tables);
       final Directory library = await _storage.library();
       final Directory covers = await _storage.covers();
@@ -119,6 +120,12 @@ class BackupService {
       final List<_SourceFile> books = <_SourceFile>[];
       final List<_SourceFile> coverFiles = <_SourceFile>[];
       final List<Map<String, Object?>> documents = tables['documents']!;
+      if (documents.length > PaperConfig.maxBackupDocuments) {
+        throw PaperException.storage(
+          'The library has more than ${PaperConfig.maxBackupDocuments} '
+          'documents. Remove some before creating a backup.',
+        );
+      }
       int documentIndex = 0;
       for (final Map<String, Object?> row in documents) {
         documentIndex++;
@@ -162,7 +169,9 @@ class BackupService {
             // A cover is metadata, not the book. Losing it should not block a
             // backup, but the backup must be honest that it has no cover.
             row['cover_path'] = null;
-            warnings.add('The cover for "$title" was missing and was not saved.');
+            warnings.add(
+              'The cover for "$title" was missing and was not saved.',
+            );
           } else {
             coverFiles.add(
               _SourceFile(
@@ -242,6 +251,24 @@ class BackupService {
       await addSources(books);
       await addSources(coverFiles);
 
+      // Refuse to write an archive that the same version would refuse to
+      // restore. Limits are shared with BackupArchive rather than duplicated.
+      if (entries.length > PaperConfig.maxBackupEntries) {
+        throw PaperException.storage(
+          'This library exceeds the '
+          '${PaperConfig.maxBackupEntries}-file backup limit.',
+        );
+      }
+      final int totalBytes =
+          databaseBytes.length + settingsBytes.length + libraryBytes;
+      if (totalBytes > PaperConfig.maxBackupUncompressedBytes) {
+        throw PaperException.storage(
+          'This library is larger than the '
+          '${PaperConfig.maxBackupUncompressedBytes ~/ (1024 * 1024 * 1024)} GB '
+          'backup limit.',
+        );
+      }
+
       final BackupManifest manifest = BackupManifest(
         format: PaperConfig.backupFormat,
         version: PaperConfig.backupFormatVersion,
@@ -253,7 +280,9 @@ class BackupService {
         libraryBytes: libraryBytes,
         warnings: List<String>.unmodifiable(warnings),
       );
-      final List<int> manifestBytes = utf8.encode(jsonEncode(manifest.toJson()));
+      final List<int> manifestBytes = utf8.encode(
+        jsonEncode(manifest.toJson()),
+      );
       final File manifestFile = File(p.join(work.path, 'manifest.json'));
       await manifestFile.writeAsBytes(manifestBytes, flush: true);
       final File checksumFile = File(p.join(work.path, 'manifest.sha256'));
@@ -263,7 +292,9 @@ class BackupService {
       );
 
       final String stamp = _fileStamp(DateTime.now());
-      final String prefix = safetySnapshot ? 'PaperOS-safety' : 'PaperOS Back-up';
+      final String prefix = safetySnapshot
+          ? 'PaperOS-safety'
+          : 'PaperOS Back-up';
       final Directory outputDirectory = safetySnapshot
           ? await _storage.safetyBackups()
           : workRoot;
@@ -288,7 +319,10 @@ class BackupService {
           message: 'Packing documents and records',
         ),
       );
-      final List<_SourceFile> allSources = <_SourceFile>[...books, ...coverFiles];
+      final List<_SourceFile> allSources = <_SourceFile>[
+        ...books,
+        ...coverFiles,
+      ];
       final int total = allSources.length + 4;
       final ZipFileEncoder encoder = ZipFileEncoder();
       bool encoderOpen = false;
@@ -384,6 +418,18 @@ class BackupService {
     bool Function()? isCancelled,
   }) async {
     final List<String> newFiles = <String>[];
+    bool committed = false;
+
+    // Only roll back copied attachments while the database still points at the
+    // old library. Once the transaction commits, these files are the live
+    // library and a late cleanup error must not delete them.
+    void rollbackNewFiles() {
+      if (committed) return;
+      for (final String file in newFiles) {
+        _deleteFileQuietly(File(file));
+      }
+    }
+
     Directory? staging;
     BackupResult? safety;
     try {
@@ -429,8 +475,9 @@ class BackupService {
           );
         },
       );
-      final Map<String, List<Map<String, Object?>>> tables =
-          _parseDatabaseJson(extracted.databaseJson);
+      final Map<String, List<Map<String, Object?>>> tables = _parseDatabaseJson(
+        extracted.databaseJson,
+      );
       _validateCounts(extracted.manifest, tables);
       _validateRelationships(extracted.manifest, tables);
 
@@ -490,13 +537,27 @@ class BackupService {
         do {
           target = p.join(destination.path, '${newLocalId()}$extension');
         } while (File(target).existsSync());
-        final File copied = await File(sourcePath).copy(target);
+        final File copied;
+        try {
+          copied = await File(sourcePath).copy(target);
+        } on FileSystemException {
+          // copy() can leave a partial destination behind; it is not yet in
+          // newFiles, so remove it here before the rollback path runs.
+          _deleteFileQuietly(File(target));
+          rethrow;
+        }
         newFiles.add(target);
         final int actualLength = await copied.length();
         final String actualHash = await _hashFile(copied);
         if (actualLength != entry.byteSize || actualHash != entry.sha256) {
           throw FormatException(
             'A file changed while it was being restored: ${entry.path}.',
+          );
+        }
+        if (entry.type == BackupEntryType.book &&
+            row['byte_size'] != actualLength) {
+          throw const FormatException(
+            'A document size does not match the restored book file.',
           );
         }
         if (entry.type == BackupEntryType.book) {
@@ -542,11 +603,10 @@ class BackupService {
         });
       } on Object {
         await _settings.restoreRaw(oldSettings);
-        for (final String file in newFiles) {
-          _deleteFileQuietly(File(file));
-        }
+        rollbackNewFiles();
         rethrow;
       }
+      committed = true;
 
       onProgress?.call(
         const BackupProgress(
@@ -571,27 +631,19 @@ class BackupService {
         warnings: extracted.manifest.warnings,
       );
     } on BackupCancelledException {
-      for (final String file in newFiles) {
-        _deleteFileQuietly(File(file));
-      }
+      rollbackNewFiles();
       throw PaperException(
         PaperErrorKind.cancelled,
         'Restore cancelled. Your library was not changed.',
       );
     } on FormatException catch (error) {
-      for (final String file in newFiles) {
-        _deleteFileQuietly(File(file));
-      }
+      rollbackNewFiles();
       throw PaperException.corruptDocument(error.message, cause: error);
     } on PaperException {
-      for (final String file in newFiles) {
-        _deleteFileQuietly(File(file));
-      }
+      rollbackNewFiles();
       rethrow;
     } on FileSystemException catch (error) {
-      for (final String file in newFiles) {
-        _deleteFileQuietly(File(file));
-      }
+      rollbackNewFiles();
       throw PaperException.storage(
         'PaperOS could not restore the backup. Your previous library was '
         'left in place. Check free space and try again.',
@@ -610,9 +662,7 @@ class BackupService {
 
   Future<Map<String, List<Map<String, Object?>>>> _snapshotTables() async {
     final sqflite.Database database = await _database.database;
-    return database.transaction((
-      sqflite.Transaction transaction,
-    ) async {
+    return database.transaction((sqflite.Transaction transaction) async {
       final Map<String, List<Map<String, Object?>>> tables =
           <String, List<Map<String, Object?>>>{};
       for (final String table in PaperSchema.backupTables) {
@@ -620,19 +670,14 @@ class BackupService {
           'SELECT * FROM "$table" ORDER BY rowid',
         );
         tables[table] = rows
-            .map(
-              (Map<String, Object?> row) =>
-                  Map<String, Object?>.of(row),
-            )
+            .map((Map<String, Object?> row) => Map<String, Object?>.of(row))
             .toList(growable: true);
       }
       return tables;
     });
   }
 
-  Map<String, List<Map<String, Object?>>> _parseDatabaseJson(
-    List<int> bytes,
-  ) {
+  Map<String, List<Map<String, Object?>>> _parseDatabaseJson(List<int> bytes) {
     const String corrupt = 'The backup database index is corrupt.';
     final Object? decoded;
     try {
@@ -796,6 +841,12 @@ class BackupService {
         _requireFlag(row, 'is_done', table);
         _requireInt(row, 'created_at', table, minimum: 0);
         _optionalText(row, 'due_date', table);
+        final Object? dueDate = row['due_date'];
+        if (dueDate != null && (dueDate is! String || !_isDayKey(dueDate))) {
+          throw const FormatException(
+            'A task has an invalid due date. Expected yyyy-MM-dd.',
+          );
+        }
         _optionalInt(row, 'completed_at', table, minimum: 0);
       case 'locations':
         _requireText(row, 'id', table);
@@ -940,9 +991,8 @@ class BackupService {
             await transaction.insert(table, row);
           }
         }
-        final List<Map<String, Object?>> foreignKeys = await transaction.rawQuery(
-          'PRAGMA foreign_key_check',
-        );
+        final List<Map<String, Object?>> foreignKeys = await transaction
+            .rawQuery('PRAGMA foreign_key_check');
         if (foreignKeys.isNotEmpty) {
           throw const FormatException(
             'The backup contains broken relationships between records.',
@@ -977,8 +1027,7 @@ class BackupService {
       final List<Map<String, Object?>> integrity = await check.rawQuery(
         'PRAGMA integrity_check',
       );
-      if (integrity.length != 1 ||
-          integrity.first.values.first != 'ok') {
+      if (integrity.length != 1 || integrity.first.values.first != 'ok') {
         throw const FormatException(
           'The restored database failed its SQLite integrity check.',
         );
@@ -1117,7 +1166,10 @@ String _safeExtension(String path) {
 
 bool _isInside(String root, String path) {
   if (path.isEmpty) return false;
-  return p.isWithin(p.normalize(p.absolute(root)), p.normalize(p.absolute(path)));
+  return p.isWithin(
+    p.normalize(p.absolute(root)),
+    p.normalize(p.absolute(path)),
+  );
 }
 
 String _databaseString(Object? value) {
@@ -1207,13 +1259,7 @@ num? _optionalNumber(
   num? maximum,
 }) {
   if (row[key] == null) return null;
-  return _requireNumber(
-    row,
-    key,
-    table,
-    minimum: minimum,
-    maximum: maximum,
-  );
+  return _requireNumber(row, key, table, minimum: minimum, maximum: maximum);
 }
 
 void _requireFlag(Map<String, Object?> row, String key, String table) {
@@ -1221,6 +1267,18 @@ void _requireFlag(Map<String, Object?> row, String key, String table) {
   if (value != 0 && value != 1) {
     throw FormatException('A $table record has an invalid $key flag.');
   }
+}
+
+/// True for a real calendar day in the `yyyy-MM-dd` form used by tasks.
+/// A round-trip rejects values such as `2026-02-31` that [DateTime] would
+/// otherwise normalise into March.
+bool _isDayKey(String value) {
+  final DateTime? parsed = DateTime.tryParse(value);
+  if (parsed == null) return false;
+  String two(int part) => part.toString().padLeft(2, '0');
+  return '${parsed.year.toString().padLeft(4, '0')}-'
+          '${two(parsed.month)}-${two(parsed.day)}' ==
+      value;
 }
 
 String _fileStamp(DateTime time) {

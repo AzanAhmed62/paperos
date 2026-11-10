@@ -85,7 +85,7 @@ clock updates once at each minute boundary instead of every second.
 
 ### Backup and restore
 
-Settings offers **Back up library** and **Restore from backup**. Backup streams
+Settings offers **Create a backup** and **Restore from a backup**. Backup streams
 a complete, checksummed archive to a destination chosen with the SAF save
 picker. Restore shows a preview with counts and warnings, explicitly replaces the
 current library after confirmation, and creates a safety snapshot first. Invalid
@@ -166,8 +166,8 @@ the shipped code, not that every visual detail was inspected on hardware.
 | Import through the system picker | Implemented but runtime-unverified | Needs a real Android picker and provider. |
 | Home-role request, app discovery, app launch | Implemented but runtime-unverified | Platform channels compile; behaviour needs Android. |
 | Keep-screen-on | Implemented but runtime-unverified | Platform channel compiles; behaviour needs Android. |
-| Release permissions | Static audit pending artifact | The hand-written release manifest declares no `INTERNET` or storage permission. The merged release manifest must be audited on a built artifact; see the final report. |
-| Production signing | Not run | No owner keystore credentials were supplied. Release tasks fail closed rather than debug-sign. |
+| Release permissions | Verified on an unsigned analysis artifact | The merged release manifest and APK contain no `INTERNET` and no storage permission. The only permission is the app-defined signature permission `dev.paperos.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`. The one exported receiver is AndroidX's profile installer, guarded by `android.permission.DUMP`. See `docs/performance-report.md`. |
+| Production signing | Blocked | No owner keystore credentials were supplied. Release tasks fail closed rather than debug-sign; only an unsigned analysis APK/AAB was produced. |
 | Cloud sync, accounts, analytics | Not implemented | Explicitly out of scope. |
 | PDF highlights and annotations | Not implemented | The native PDF path renders bitmaps and does not expose selectable text. |
 | Backup encryption | Not implemented | Backups are plain ZIPs; see `security-and-privacy.md`. |
@@ -177,15 +177,15 @@ the shipped code, not that every visual detail was inspected on hardware.
 ## Requirements
 
 - Flutter with Dart `^3.13.0` (the EPUB parser's XML dependency requires it).
-  This repository was analysed, tested, and built with **Flutter 3.47.7 /
-  Dart 3.13.5**.
+  This repository was analysed, tested, and built with **Flutter 3.47.9 /
+  Dart 3.13.7**.
 - Android SDK, `minSdk` 24. `compileSdk` and `targetSdk` follow the Flutter
   SDK's pinned versions (36 at the time of writing).
-- **JDK 17 or 21.** This checkout was built with JDK 21.0.12. Gradle 8.14's
-  Kotlin DSL does not support JDK 25; do not point `JAVA_HOME` at Android
-  Studio's JDK 25 if that is what the machine provides.
+- **JDK 17 or 21.** This checkout was built with JDK 17.0.20.1 (the JDK
+  selected by `flutter config --jdk-dir`). Gradle 8.14's Kotlin DSL does not
+  support JDK 25; do not point `JAVA_HOME` at a JDK 25 installation.
 - The Flutter Gradle plugin provisions an NDK even though this project compiles
-  no native sources. Flutter 3.47.7 pins `ndkVersion` 28.2.13676358; a build
+  no native sources. Flutter 3.47.9 pins `ndkVersion` 28.2.13676358; a build
   fails during configuration if no NDK is present.
 - For tests, the `sqlite3` library used by `sqflite_common_ffi` must be available
   through the Dart build hook cache or a system SQLite installation.
@@ -203,8 +203,9 @@ flutter build apk --debug
 
 The debug APK is written to
 `build/app/outputs/flutter-apk/app-debug.apk`. Exact v1.2 artifact sizes,
-hashes, manifest audit results and test totals are recorded in the final report
-and [`docs/performance-report.md`](docs/performance-report.md).
+hashes, manifest audit results and test totals are recorded in the
+[`docs/v1.2-engineering-report.md`](docs/v1.2-engineering-report.md) and
+[`docs/performance-report.md`](docs/performance-report.md).
 
 Release builds require owner-supplied credentials and fail closed otherwise:
 
@@ -220,9 +221,9 @@ build is possible only with `-Ppaperos.allowUnsignedRelease=true` and is not
 installable or distributable. The full procedure, manifest audit, and signature
 verification commands are in [`docs/release-process.md`](docs/release-process.md).
 
-The automated suite contains the original 134 tests plus v1.2 backup,
-annotation-export, display-profile, settings-envelope, and regression tests. The
-exact total and result are recorded in the final report:
+The automated suite contains **163 tests**: the original 134 plus v1.2 backup,
+annotation-export, display-profile, settings-envelope, text-scaling and
+regression tests. All 163 pass with `flutter test`:
 
 - `test/unit/` — EPUB parsing and archive safety, EPUB pagination/locators, text
   pagination, PDF backend lifetime/navigation, file-browser channel mapping,
@@ -245,6 +246,9 @@ credentials were supplied. See the manual checklist below.
 
 Design notes:
 
+- [`docs/v1.2-engineering-report.md`](docs/v1.2-engineering-report.md) — the
+  full v1.2 engineering report, including verification status, release gates and
+  blocked items.
 - [`docs/architecture.md`](docs/architecture.md) — components, data flow, and
   security boundaries.
 - [`docs/backup-format.md`](docs/backup-format.md) — archive layout, manifest,

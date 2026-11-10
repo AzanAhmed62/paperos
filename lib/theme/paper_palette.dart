@@ -137,7 +137,7 @@ class PaperPalette {
   ///
   /// The paper and ink identity is preserved; only secondary text and hairlines
   /// become darker so they survive a panel with fewer grey levels. Text
-  /// selection uses the same rule colour, which is why it is strengthened too.
+  /// selection uses an ink fill whose opacity is raised by DisplayPolicy.
   PaperPalette highContrast() {
     return switch (style) {
       PaperStyle.white => const PaperPalette(

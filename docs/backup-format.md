@@ -10,8 +10,9 @@ and not a proprietary encrypted format.
 - Settings document version: `2`
 - Extension: `.paperosbackup`
 - Encryption: none
-- Compression: deflate for metadata, stored (uncompressed) for book and cover
-  payloads
+- Compression: deflate for metadata, `store` (no compression) for book and
+  cover payloads. `archive` may still label a stored entry as deflate level 0;
+  the payload bytes are not compressed either way.
 
 A backup is a replacement snapshot. Restoring it is a full replacement of the
 library and settings, never a merge. See `backup-restore.md`.
@@ -162,7 +163,8 @@ Restore validates:
 - page/fraction progress values are in range;
 - bookmarks, annotations and other child rows point at a document in the
   backup;
-- annotation and bookmark locators are non-empty strings;
+- annotation locators are non-empty strings; bookmark locators are optional
+  because page-based PDF bookmarks may not have a text locator;
 - no document row is left without a book file;
 - manifest counts and entry relationships agree.
 
@@ -186,8 +188,10 @@ This is the same envelope used by the app:
 ```
 
 A legacy document with no `version` key and no `display` section remains
-readable. A present version outside `1..2`, invalid JSON, or wrong types abort
-the restore; they do not fall back to defaults.
+readable. A present version outside `1..2`, invalid JSON, a section that is not an
+object, or a wrong field type aborts the restore; they do not fall back to
+defaults. A missing section is treated as a legacy default so a v1 document
+remains readable.
 
 ## Size and entry limits
 
@@ -204,8 +208,11 @@ PaperOS refuses work before or during extraction when:
 | Documents | 10,000 |
 | Path length | 200 characters |
 
-Archive bytes are also compared with the compressed payload total, so a
-decompression bomb cannot silently expand beyond the declared limits.
+The archive length is also compared with the compressed payload total, so a
+decompression bomb cannot silently expand beyond the declared limits. The
+producer enforces the same entry, document and total-size limits before it
+writes an archive, so PaperOS cannot create a backup it would later refuse to
+restore.
 
 ## Integrity and trust model
 

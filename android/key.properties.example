@@ -1,0 +1,7 @@
+# Copy this file to android/key.properties and fill in your own values.
+# android/key.properties is git-ignored. Never commit this file with real
+# credentials and never reuse a debug keystore for production.
+storeFile=/absolute/path/to/your-upload-keystore.jks
+storePassword=your-keystore-password
+keyAlias=your-key-alias
+keyPassword=your-key-password
