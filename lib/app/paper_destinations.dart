@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import '../core/display/display_policy.dart';
 import '../shared/widgets/paper_widgets.dart';
@@ -22,35 +21,26 @@ enum PaperDestination {
   final IconData icon;
 }
 
-/// The frame every destination screen is drawn inside: the destination bar at
-/// the bottom, and the app drawer reachable from Paper Home.
+/// The bottom strip of PaperOS destinations.
 ///
 /// The bar is a bespoke strip of icon and label rather than a
 /// [NavigationBar]: PaperOS has no accent colour to tint a Material indicator
 /// with, and the selected item is shown the way the rest of the product shows
 /// selection — inverted.
-class PaperShell extends StatelessWidget {
-  const PaperShell({super.key, required this.shell});
+class PaperDestinationBar extends StatelessWidget {
+  const PaperDestinationBar({
+    super.key,
+    required this.currentIndex,
+    required this.onSelect,
+  });
 
-  final Widget shell;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: shell,
-      bottomNavigationBar: const _PaperDestinationBar(),
-    );
-  }
-}
-
-class _PaperDestinationBar extends StatelessWidget {
-  const _PaperDestinationBar();
+  final int currentIndex;
+  final ValueChanged<int> onSelect;
 
   @override
   Widget build(BuildContext context) {
     final PaperPalette palette = paperPalette(context);
     final PaperTypography type = PaperTypography.of(context);
-    final int index = _currentIndex(context);
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -69,11 +59,8 @@ class _PaperDestinationBar extends StatelessWidget {
                   child: _DestinationButton(
                     key: ValueKey<String>('dest-${destination.path}'),
                     destination: destination,
-                    selected: destination.index == index,
-                    onTap: () {
-                      if (destination.index == index) return;
-                      context.go(destination.path);
-                    },
+                    selected: destination.index == currentIndex,
+                    onTap: () => onSelect(destination.index),
                     palette: palette,
                     type: type,
                   ),
@@ -83,14 +70,6 @@ class _PaperDestinationBar extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  int _currentIndex(BuildContext context) {
-    final String location = GoRouterState.of(context).uri.path;
-    for (final PaperDestination destination in PaperDestination.values) {
-      if (destination.path == location) return destination.index;
-    }
-    return 0;
   }
 }
 

@@ -30,45 +30,34 @@ class FilesScreen extends ConsumerStatefulWidget {
 }
 
 class _FilesScreenState extends ConsumerState<FilesScreen> {
-  /// The path of folders descended into, within the current location. Empty
-  /// means "show the list of granted folders".
-  final List<_BrowseStep> _steps = <_BrowseStep>[];
-
   /// Uri of the entry currently being copied into the library, if any.
   String? _openingUri;
 
   @override
   Widget build(BuildContext context) {
-    final _BrowseStep? current = _steps.isEmpty ? null : _steps.last;
+    final List<FilesBrowseStep> steps = ref.watch(filesBrowseProvider);
+    final FilesBrowseStep? current = steps.isEmpty ? null : steps.last;
 
-    return PopScope(
-      canPop: _steps.isEmpty,
-      onPopInvokedWithResult: (bool didPop, Object? result) {
-        if (!didPop && _steps.isNotEmpty) {
-          setState(() => _steps.removeLast());
-        }
-      },
-      child: Scaffold(
-        appBar: PaperTopBar(
-          title: 'Files',
-          subtitle: current?.label ?? 'Folders you have added',
-          leading: _steps.isEmpty
-              ? const SizedBox.shrink()
-              : IconButton(
-                  onPressed: () => setState(() => _steps.removeLast()),
-                  icon: const Icon(Icons.arrow_back),
-                  tooltip: 'Back',
-                ),
-          actions: <Widget>[
-            IconButton(
-              onPressed: _addFolder,
-              icon: const Icon(Icons.create_new_folder_outlined),
-              tooltip: 'Add a folder',
-            ),
-          ],
-        ),
-        body: current == null ? _locationsView() : _childrenView(current),
+    return Scaffold(
+      appBar: PaperTopBar(
+        title: 'Files',
+        subtitle: current?.label ?? 'Folders you have added',
+        leading: steps.isEmpty
+            ? const SizedBox.shrink()
+            : IconButton(
+                onPressed: ref.read(filesBrowseProvider.notifier).pop,
+                icon: const Icon(Icons.arrow_back),
+                tooltip: 'Back',
+              ),
+        actions: <Widget>[
+          IconButton(
+            onPressed: _addFolder,
+            icon: const Icon(Icons.create_new_folder_outlined),
+            tooltip: 'Add a folder',
+          ),
+        ],
       ),
+      body: current == null ? _locationsView() : _childrenView(current),
     );
   }
 
@@ -108,17 +97,8 @@ class _FilesScreenState extends ConsumerState<FilesScreen> {
             return _FolderTile(
               label: location.label,
               subtitle: 'Tap to browse',
-              onTap: () => setState(() {
-                _steps
-                  ..clear()
-                  ..add(
-                    _BrowseStep(
-                      location: location,
-                      directoryUri: null,
-                      label: location.label,
-                    ),
-                  );
-              }),
+              onTap: () =>
+                  ref.read(filesBrowseProvider.notifier).openLocation(location),
               onLongPress: () => _removeLocation(location),
             );
           },
@@ -129,7 +109,7 @@ class _FilesScreenState extends ConsumerState<FilesScreen> {
 
   // ---------------------------------------------------------------- children
 
-  Widget _childrenView(_BrowseStep step) {
+  Widget _childrenView(FilesBrowseStep step) {
     final BrowseRequest request = BrowseRequest(
       location: step.location,
       directoryUri: step.directoryUri,
@@ -205,17 +185,17 @@ class _FilesScreenState extends ConsumerState<FilesScreen> {
     PaperToast.show(context, 'Removed "${location.label}".');
   }
 
-  Future<void> _openEntry(_BrowseStep step, BrowsedEntry entry) async {
+  Future<void> _openEntry(FilesBrowseStep step, BrowsedEntry entry) async {
     if (entry.isDirectory) {
-      setState(() {
-        _steps.add(
-          _BrowseStep(
-            location: step.location,
-            directoryUri: entry.uri,
-            label: entry.name,
-          ),
-        );
-      });
+      ref
+          .read(filesBrowseProvider.notifier)
+          .push(
+            FilesBrowseStep(
+              location: step.location,
+              directoryUri: entry.uri,
+              label: entry.name,
+            ),
+          );
       return;
     }
 
@@ -246,21 +226,6 @@ class _FilesScreenState extends ConsumerState<FilesScreen> {
       );
     }
   }
-}
-
-/// One level inside a location.
-class _BrowseStep {
-  const _BrowseStep({
-    required this.location,
-    required this.directoryUri,
-    required this.label,
-  });
-
-  final BrowsedLocation location;
-
-  /// Null means the location's root.
-  final String? directoryUri;
-  final String label;
 }
 
 class _FolderTile extends StatelessWidget {

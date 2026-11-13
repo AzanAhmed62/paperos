@@ -57,19 +57,21 @@ class AppCatalogCache {
 
   final LauncherService _service;
 
-  List<InstalledApp>? _apps;
+  AppCatalogSnapshot? _snapshot;
   final Map<String, Uint8List> _icons = <String, Uint8List>{};
 
   AppCatalogSupport get support => _service.support;
 
-  bool get isLoaded => _apps != null;
+  bool get isLoaded => _snapshot != null;
+
+  bool get restricted => _snapshot?.restricted ?? false;
 
   /// Loads the app list once per session.
-  Future<List<InstalledApp>> apps({bool force = false}) async {
-    final List<InstalledApp>? cached = _apps;
+  Future<AppCatalogSnapshot> apps({bool force = false}) async {
+    final AppCatalogSnapshot? cached = _snapshot;
     if (cached != null && !force) return cached;
-    final List<InstalledApp> loaded = await _service.loadApps();
-    _apps = loaded;
+    final AppCatalogSnapshot loaded = await _service.loadApps();
+    _snapshot = loaded;
     return loaded;
   }
 
@@ -83,5 +85,5 @@ class AppCatalogCache {
   }
 
   /// Drops the app list, e.g. after the user installs or removes something.
-  void invalidate() => _apps = null;
+  void invalidate() => _snapshot = null;
 }

@@ -49,6 +49,17 @@ class AppCatalogChannel(private val context: Context) {
         private const val ERROR_NO_APP = "no_app"
         private const val ERROR_LAUNCH_FAILED = "launch_failed"
         private const val ERROR_ICON_FAILED = "icon_failed"
+
+        /**
+         * Request code for the HOME-role confirmation.
+         *
+         * The result itself is not consumed here: `PaperApp` refreshes the role
+         * on resume. The request code matters because the platform permission
+         * controller reads the caller from `getCallingPackage()`, which Android
+         * only populates for `startActivityForResult`. A plain `startActivity`
+         * makes the dialog fail silently with "Package name cannot be null".
+         */
+        private const val REQUEST_HOME_ROLE = 7201
     }
 
     /** Icons are rasterised off the main thread. 96px covers a 28dp tile at 3x. */
@@ -140,7 +151,16 @@ class AppCatalogChannel(private val context: Context) {
                 ),
             )
 
-            result.success(mapOf("apps" to apps, "totalMatched" to resolved.size))
+            result.success(
+                mapOf(
+                    "apps" to apps,
+                    "totalMatched" to resolved.size,
+                    // On Android 11+ an incomplete package-visibility query
+                    // usually resolves only this app itself. The Dart drawer
+                    // explains that instead of claiming nothing is installed.
+                    "restricted" to (resolved.size <= 1),
+                ),
+            )
         } catch (error: Throwable) {
             result.error(
                 ERROR_UNAVAILABLE,
@@ -334,8 +354,9 @@ class AppCatalogChannel(private val context: Context) {
                 return
             }
             try {
-                activity.startActivity(
+                activity.startActivityForResult(
                     roleManager.createRequestRoleIntent(RoleManager.ROLE_HOME),
+                    REQUEST_HOME_ROLE,
                 )
                 result.success(mapOf("flow" to "role_request", "isHomeApp" to false))
             } catch (error: Throwable) {

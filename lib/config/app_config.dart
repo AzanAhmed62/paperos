@@ -13,8 +13,8 @@ abstract final class PaperConfig {
 
   /// Release version. Kept in sync with `pubspec.yaml`; shown in Settings and
   /// written into backup manifests so a future version can be diagnosed.
-  static const String appVersion = '1.2.0';
-  static const int appBuildNumber = 3;
+  static const String appVersion = '1.3.0';
+  static const int appBuildNumber = 4;
 
   static String get versionLabel => '$appVersion ($appBuildNumber)';
 

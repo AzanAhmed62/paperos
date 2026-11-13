@@ -22,6 +22,7 @@ class MainActivity : FlutterActivity() {
     private var keepScreenOn: KeepScreenOnChannel? = null
     private var fileBrowser: FileBrowserChannel? = null
     private var safFiles: SafFileChannel? = null
+    private var systemIntents: SystemIntentChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -54,11 +55,19 @@ class MainActivity : FlutterActivity() {
             channel.setHostActivity(this)
             channel.attach(messenger)
         }
+
+        systemIntents = SystemIntentChannel().also { channel ->
+            // The cold-start intent is the only chance to distinguish "opened
+            // as the home app" from "opened with a PDF".
+            channel.setInitialIntent(intent)
+            channel.attach(messenger)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         fileBrowser?.handleNewIntent(intent)
+        systemIntents?.handleNewIntent(intent)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -77,11 +86,13 @@ class MainActivity : FlutterActivity() {
         keepScreenOn?.dispose()
         fileBrowser?.dispose()
         safFiles?.dispose()
+        systemIntents?.dispose()
         appCatalog = null
         pdfRender = null
         keepScreenOn = null
         fileBrowser = null
         safFiles = null
+        systemIntents = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 }

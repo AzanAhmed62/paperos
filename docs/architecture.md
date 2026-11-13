@@ -5,9 +5,11 @@ environment. It is not an operating-system replacement: it can be selected as an
 Android Home app, but it still runs inside Android and keeps using the platform
 for file access, PDF rendering, app launching, and keep-screen-on.
 
-This document describes the v1.2 architecture. The reader-engine choice and its
+This document describes the v1.3 architecture. The reader-engine choice and its
 trade-offs are recorded separately in
-[`reader-engine-decision.md`](reader-engine-decision.md). Backup formats and
+[`reader-engine-decision.md`](reader-engine-decision.md). The navigation and
+launcher contract is documented in
+[`navigation-architecture.md`](navigation-architecture.md). Backup formats and
 restore safety are documented in [`backup-format.md`](backup-format.md) and
 [`backup-restore.md`](backup-restore.md). Display profiles are documented in
 [`eink-profile.md`](eink-profile.md).
@@ -38,39 +40,48 @@ restore safety are documented in [`backup-format.md`](backup-format.md) and
 main()
   └─ ProviderScope(sharedPreferences override)
        └─ PaperApp
-            ├─ go_router StatefulShellRoute (five destinations)
-            └─ root-navigator overlays
-                 reader, tasks, search, note editor, app drawer
+            ├─ appRouterProvider → createAppRouter()
+            │    ├─ StatefulShellRoute (five destinations)
+            │    │    └─ shell PopScope + pure Back policy
+            │    └─ root-navigator overlays
+            │         reader, tasks, search, note editor, app drawer
+            └─ SystemIntentController / ExternalOpenController
+                 HOME/LAUNCHER reset, ACTION_VIEW document drain
 ```
 
 State is plain Riverpod: `Provider`, `Notifier`, and `AsyncNotifier`, with no code
 generation. Navigation is `go_router`, with the primary surfaces kept in a
-stateful indexed shell and overlays pushed on the root navigator.
+stateful indexed shell and overlays pushed on the root navigator. The router is a
+provider so each tree gets a fresh navigator key and route stack. A single
+shell-level `PopScope` applies `decidePaperBack`; Home consumes Back instead of
+finishing the activity. Android intent classification is described below and in
+[`navigation-architecture.md`](navigation-architecture.md).
 
 ```
 lib/
-  app/          bootstrap, router, destination shell, dependency wiring
+  app/          bootstrap, router, destination shell, Back policy, intent
+                controller, dependency wiring
   config/       file-size limits, database version, timing constants
   core/
     display/    display profile, policy, capability service, clock cadence
     errors/     PaperException and user-facing error kinds
     platform/   native bridges: SAF/files, PDF, app catalog, keep-awake,
-                streaming backup document I/O
+                streaming backup document I/O, system-intent classification
     storage/    SQLite schema/opener, app-private directories
     utils/      ids, dates, formatting, streaming fingerprint
   features/
     annotations/  annotation model, repository, providers
     backup/       archive validation, backup/restore service, SAF controller
     display/      Riverpod display policy provider and reader adjustments
-    home/         paper home and section settings
+    home/         paper home, quick actions, launcher status
     library/      import, probes, metadata, filters, library UI
     reader/       reader session/UI + PDF, text and EPUB backends
       epub/       bounded parser, book model, locator backend
-    files/        SAF folder grants and browser
+    files/        SAF folder grants, browser and folder stack
     notes/        notes repository and editor
     tasks/        dated checklist
     settings/     JSON settings in shared_preferences
-    launcher/     installed-app cache and app drawer
+    launcher/     installed-app cache, recents/favourites, app drawer
     search/       cross-surface search
   shared/widgets/ design-system widgets
   theme/          monochrome palette, spacing, typography
@@ -98,6 +109,35 @@ SQLite foreign keys are enabled with `PRAGMA foreign_keys = ON`. Bookmarks and
 annotations reference `documents(id)` with `ON DELETE CASCADE`, so deleting a
 document removes its dependent rows in the same operation. Notes and tasks are
 independent user data and are never cascaded from a document.
+
+## Navigation and launcher boundary
+
+PaperOS defines four navigation levels: Home (0), the five primary destinations
+(1), root overlays and Files folder views (2), and Android/system surfaces (3).
+The full route and Back contract is in
+[`navigation-architecture.md`](navigation-architecture.md).
+
+The Flutter side owns one Back decision. `PaperShell` installs
+`PopScope(canPop: false)` and calls the pure `decidePaperBack` function. The order
+is: close a root overlay, pop one Files folder step, return a non-Home primary
+surface to Home, consume on Home. `filesBrowseProvider` exists so the shell can
+inspect folder depth without reaching into a descendant widget.
+
+The Android side classifies the activity intent before it reaches navigation:
+
+| Intent | Owner | Navigation result |
+| --- | --- | --- |
+| `MAIN` + `HOME` | `SystemIntentChannel` | Reset to Paper Home. |
+| `MAIN` + `LAUNCHER` | `SystemIntentChannel` | Reset to Paper Home. |
+| `VIEW` (PDF/text) | `FileBrowserChannel` | Import/open the document; do not reset first. |
+
+`MainActivity` is `singleTask` with task affinity `dev.paperos.app`,
+`stateNotNeeded=true`, `clearTaskOnLaunch=false` and
+`excludeFromRecents=false`. Cold-start intents are stashed by the native channel
+and claimed by Dart; warm intents arrive through `onNewIntent`; resume drains any
+intent stashed while the engine was paused. The router is a provider with a
+per-router navigator key, so activity recreation starts at Home rather than
+restoring a stale route stack.
 
 ## Import pipeline
 
@@ -311,9 +351,11 @@ The migration path is explicit and additive. See
 
 The automated suite runs against the real SQLite engine and exercises the parser,
 pagination, locator restore, annotation ranges, import deduplication, migration,
-backup/restore validation, annotation export, display policy and real widget
-surfaces. It does not prove Android runtime behaviour. SAF picker interaction,
-native PDF rasterisation, EPUB selection handles, backup through a real document
-provider, e-ink appearance, Home-role selection, app launching, and release
-signing remain device checks. The manual checklist is in
+backup/restore validation, annotation export, display policy, navigation Back
+policy, router recovery, system-intent classification, launcher providers, and
+real widget surfaces. It does not prove Android runtime behaviour. SAF picker
+interaction, native PDF rasterisation, EPUB selection handles, backup through a
+real document provider, e-ink appearance, HOME-role selection, warm launcher
+intents, duplicate tasks, app launching, predictive Back and release signing
+remain device checks. The manual checklist is in
 [`manual-testing.md`](manual-testing.md).

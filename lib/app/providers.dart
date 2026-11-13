@@ -7,6 +7,7 @@ import '../core/platform/keep_awake_service.dart';
 import '../core/platform/launcher_service.dart';
 import '../core/platform/pdf_service.dart';
 import '../core/platform/saf_file_service.dart';
+import '../core/platform/system_intent_service.dart';
 import '../core/storage/app_database.dart';
 import '../core/storage/app_storage.dart';
 import '../features/annotations/data/annotation_export_service.dart';
@@ -114,6 +115,12 @@ final keepAwakeServiceProvider = Provider<KeepAwakeService>(
 final launcherServiceProvider = Provider<LauncherService>(
   (Ref ref) => PlatformLauncherService(),
 );
+
+final systemIntentServiceProvider = Provider<SystemIntentService>((Ref ref) {
+  final PlatformSystemIntentService service = PlatformSystemIntentService();
+  ref.onDispose(service.dispose);
+  return service;
+});
 
 final documentImportServiceProvider = Provider<DocumentImportService>(
   (Ref ref) => const SystemDocumentImportService(),

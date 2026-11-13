@@ -4,20 +4,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../app/providers.dart';
 import '../../../app/router.dart';
 import '../../../core/display/clock_tick.dart';
 import '../../../core/display/display_profile.dart';
 import '../../../core/errors/paper_exception.dart';
 import '../../../core/platform/installed_app.dart';
-import '../../../core/platform/launcher_service.dart';
 import '../../../core/utils/date_format.dart';
 import '../../../features/display/application/display_providers.dart';
 import '../../../features/launcher/application/launcher_providers.dart';
+import '../../../features/launcher/presentation/installed_app_icon.dart';
 import '../../../features/library/application/library_providers.dart';
 import '../../../features/library/data/library_service.dart';
 import '../../../features/library/domain/document.dart';
 import '../../../features/library/domain/library_models.dart';
+import '../../../features/notes/application/notes_providers.dart';
+import '../../../features/notes/domain/note.dart';
 import '../../../features/settings/application/settings_controller.dart';
 import '../../../features/settings/domain/app_settings.dart';
 import '../../../features/tasks/application/tasks_providers.dart';
@@ -47,13 +48,14 @@ class PaperHomeScreen extends ConsumerWidget {
           padding: const EdgeInsets.only(bottom: PaperSpace.xl),
           children: <Widget>[
             _HomeHeader(showSearch: home.shows(HomeSection.search)),
-            if (home.showClock) const _ClockBlock(),
-            if (!home.hiddenSections.contains(HomeSection.continueReading))
+            if (home.showClock)
+              _ClockBlock(showDate: home.showDate, density: home.density),
+            _QuickActions(showSearch: home.shows(HomeSection.search)),
+            if (home.shows(HomeSection.continueReading))
               const _ContinueReadingSection(),
-            if (!home.hiddenSections.contains(HomeSection.today))
-              const _TodaySection(),
-            if (!home.hiddenSections.contains(HomeSection.recent))
-              const _RecentDocumentsSection(),
+            if (home.shows(HomeSection.today)) const _TodaySection(),
+            if (home.shows(HomeSection.recent)) const _RecentDocumentsSection(),
+            const _FavoriteAppsSection(),
             const _LauncherEntry(),
           ],
         ),
@@ -105,7 +107,10 @@ class _HomeHeader extends StatelessWidget {
 /// one-shot timer to the next minute boundary, so an idle home screen is not
 /// repainting sixty times for a value that only changes every sixty seconds.
 class _ClockBlock extends ConsumerStatefulWidget {
-  const _ClockBlock();
+  const _ClockBlock({required this.showDate, required this.density});
+
+  final bool showDate;
+  final HomeDensity density;
 
   @override
   ConsumerState<_ClockBlock> createState() => _ClockBlockState();
@@ -170,9 +175,9 @@ class _ClockBlockState extends ConsumerState<_ClockBlock>
     }
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(
+      padding: EdgeInsets.fromLTRB(
         PaperSpace.gutter,
-        PaperSpace.xl,
+        widget.density == HomeDensity.compact ? PaperSpace.lg : PaperSpace.xl,
         PaperSpace.gutter,
         0,
       ),
@@ -180,15 +185,242 @@ class _ClockBlockState extends ConsumerState<_ClockBlock>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(formatClock(_now), style: type.clock),
-          const SizedBox(height: PaperSpace.xs),
-          Text(formatLongDate(_now), style: type.date),
+          if (widget.showDate) ...<Widget>[
+            const SizedBox(height: PaperSpace.xs),
+            Text(formatLongDate(_now), style: type.date),
+          ],
         ],
       ),
     );
   }
 }
 
-class _SectionShell extends StatelessWidget {
+/// Four one-tap actions for the things a launcher is actually for.
+///
+/// They sit between the clock and the reading sections: visible without
+/// scrolling, but not competing with the document the user came back to.
+class _QuickActions extends ConsumerWidget {
+  const _QuickActions({required this.showSearch});
+
+  final bool showSearch;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final PaperPalette palette = paperPalette(context);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        PaperSpace.gutter,
+        PaperSpace.md,
+        PaperSpace.gutter,
+        0,
+      ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(border: Border.all(color: palette.rule)),
+        child: SizedBox(
+          height: 64,
+          child: Row(
+            children: <Widget>[
+              if (showSearch) ...<Widget>[
+                Expanded(
+                  child: _QuickAction(
+                    icon: Icons.search,
+                    label: 'Search',
+                    onTap: () => context.push(Routes.search),
+                  ),
+                ),
+                _QuickDivider(palette: palette),
+              ],
+              Expanded(
+                child: _QuickAction(
+                  icon: Icons.grid_view_outlined,
+                  label: 'Apps',
+                  onTap: () => context.push(Routes.apps),
+                ),
+              ),
+              _QuickDivider(palette: palette),
+              Expanded(
+                child: _QuickAction(
+                  icon: Icons.note_add_outlined,
+                  label: 'New note',
+                  onTap: () => _newNote(context, ref),
+                ),
+              ),
+              _QuickDivider(palette: palette),
+              Expanded(
+                child: _QuickAction(
+                  icon: Icons.add_task_outlined,
+                  label: 'New task',
+                  onTap: () => _newTask(context, ref),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _newNote(BuildContext context, WidgetRef ref) async {
+    try {
+      final Note note = await ref.read(noteActionsProvider).create();
+      if (!context.mounted) return;
+      context.push(Routes.noteEditorPath(note.id));
+    } on PaperException catch (error) {
+      if (!context.mounted) return;
+      PaperToast.show(context, error.message, icon: Icons.error_outline);
+    }
+  }
+
+  Future<void> _newTask(BuildContext context, WidgetRef ref) async {
+    final String? title = await showPaperTextPrompt(
+      context,
+      title: 'New task',
+      label: 'What needs doing?',
+      confirmLabel: 'Add',
+    );
+    if (title == null || !context.mounted) return;
+    final DateTime now = DateTime.now();
+    try {
+      await ref
+          .read(taskActionsProvider)
+          .create(title, dueDate: DateTime(now.year, now.month, now.day));
+    } on PaperException catch (error) {
+      if (!context.mounted) return;
+      PaperToast.show(context, error.message, icon: Icons.error_outline);
+    }
+  }
+}
+
+class _QuickAction extends StatelessWidget {
+  const _QuickAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final PaperPalette palette = paperPalette(context);
+    return InkWell(
+      onTap: onTap,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          Icon(icon, size: 20, color: palette.inkMuted),
+          const SizedBox(height: PaperSpace.xs),
+          Text(
+            label,
+            style: PaperTypography.of(context).caption,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickDivider extends StatelessWidget {
+  const _QuickDivider({required this.palette});
+
+  final PaperPalette palette;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 28,
+      child: VerticalDivider(width: 1, thickness: 1, color: palette.rule),
+    );
+  }
+}
+
+/// The apps the user pinned, shown as a compact launcher row.
+///
+/// Nothing is shown when there are no pins: an empty "favourites" heading on a
+/// home screen is a promise with nothing behind it. The drawer explains how to
+/// pin, and the Launcher block below always opens it.
+class _FavoriteAppsSection extends ConsumerWidget {
+  const _FavoriteAppsSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final List<InstalledApp> apps = ref.watch(favoriteAppsProvider);
+    if (apps.isEmpty) return const SizedBox.shrink();
+
+    final bool showIcons = ref.watch(
+      settingsProvider.select(
+        (AppSettings settings) => settings.launcher.showIcons,
+      ),
+    );
+
+    return _SectionShell(
+      label: 'Pinned',
+      actionLabel: 'Apps',
+      onAction: () => context.push(Routes.apps),
+      child: Wrap(
+        spacing: PaperSpace.lg,
+        runSpacing: PaperSpace.md,
+        children: <Widget>[
+          for (final InstalledApp app in apps)
+            _HomeAppTile(app: app, showIcon: showIcons),
+        ],
+      ),
+    );
+  }
+}
+
+class _HomeAppTile extends ConsumerWidget {
+  const _HomeAppTile({required this.app, required this.showIcon});
+
+  final InstalledApp app;
+  final bool showIcon;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Semantics(
+      button: true,
+      label: 'Open ${app.label}',
+      child: InkWell(
+        onTap: () => _launch(context, ref),
+        onLongPress: () =>
+            ref.read(launcherActionsProvider).toggleFavorite(app),
+        child: SizedBox(
+          width: 64,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              InstalledAppIcon(app: app, size: 40, showIcon: showIcon),
+              const SizedBox(height: PaperSpace.xs),
+              Text(
+                app.label.isEmpty ? app.packageName : app.label,
+                style: PaperTypography.of(context).caption,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _launch(BuildContext context, WidgetRef ref) async {
+    try {
+      await ref.read(launcherActionsProvider).launch(app);
+    } on PaperException catch (error) {
+      if (!context.mounted) return;
+      PaperToast.show(context, error.message, icon: Icons.error_outline);
+    }
+  }
+}
+
+class _SectionShell extends ConsumerWidget {
   const _SectionShell({
     required this.label,
     required this.child,
@@ -202,8 +434,19 @@ class _SectionShell extends StatelessWidget {
   final VoidCallback? onAction;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final HomeDensity density = ref.watch(
+      settingsProvider.select((AppSettings settings) => settings.home.density),
+    );
+    final bool compact = density == HomeDensity.compact;
+
     return PaperSection(
+      padding: EdgeInsets.fromLTRB(
+        PaperSpace.gutter,
+        compact ? PaperSpace.md : PaperSpace.xl,
+        PaperSpace.gutter,
+        compact ? PaperSpace.md : PaperSpace.lg,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -500,9 +743,9 @@ class _LauncherEntry extends ConsumerWidget {
   /// the flow falls back to the system "default home app" screen. The user is
   /// told which one happened rather than being left with no feedback.
   Future<void> _requestHomeRole(BuildContext context, WidgetRef ref) async {
-    final LauncherService launcher = ref.read(launcherServiceProvider);
+    final LauncherActions actions = ref.read(launcherActionsProvider);
     try {
-      final HomeRoleStatus status = await launcher.requestHomeApp();
+      final HomeRoleStatus status = await actions.requestHomeRole();
       if (!context.mounted) return;
       switch (status.flow) {
         case HomeRoleFlow.roleRequest:
@@ -514,7 +757,7 @@ class _LauncherEntry extends ConsumerWidget {
             icon: Icons.home_outlined,
           );
         case HomeRoleFlow.settings:
-          await launcher.openHomeSettings();
+          await actions.openHomeSettings();
         case HomeRoleFlow.already:
           PaperToast.show(
             context,
@@ -534,16 +777,28 @@ class _LauncherEntry extends ConsumerWidget {
     }
   }
 
+  Future<void> _openHomeSettings(BuildContext context, WidgetRef ref) async {
+    try {
+      await ref.read(launcherActionsProvider).openHomeSettings();
+    } on PaperException catch (error) {
+      if (!context.mounted) return;
+      PaperToast.show(context, error.message, icon: Icons.info_outline);
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final PaperTypography type = PaperTypography.of(context);
     final PaperPalette palette = paperPalette(context);
-    final bool isHome = ref.watch(homeRoleProvider).value ?? false;
+    final AsyncValue<bool> role = ref.watch(homeRoleProvider);
+    final HomeDensity density = ref.watch(
+      settingsProvider.select((AppSettings settings) => settings.home.density),
+    );
 
     return PaperSection(
-      padding: const EdgeInsets.fromLTRB(
+      padding: EdgeInsets.fromLTRB(
         PaperSpace.gutter,
-        PaperSpace.md,
+        density == HomeDensity.compact ? PaperSpace.md : PaperSpace.lg,
         PaperSpace.gutter,
         PaperSpace.xl,
       ),
@@ -568,14 +823,51 @@ class _LauncherEntry extends ConsumerWidget {
               ),
             ),
           ),
-          if (!isHome) ...<Widget>[
-            const SizedBox(height: PaperSpace.md),
-            PaperSettingRow(
-              label: 'Make PaperOS the home app',
-              subtitle: 'Use PaperOS as the launcher when you press Home.',
-              onTap: () => _requestHomeRole(context, ref),
+          const SizedBox(height: PaperSpace.sm),
+          role.when(
+            loading: () => const PaperSettingRow(
+              label: 'Home app status',
+              subtitle: 'Checking with Android…',
             ),
-          ],
+            error: (Object error, StackTrace stack) => const PaperSettingRow(
+              label: 'Home app status',
+              subtitle:
+                  'Android did not report whether PaperOS is the home app.',
+            ),
+            data: (bool isHome) => Column(
+              children: <Widget>[
+                PaperSettingRow(
+                  label: isHome
+                      ? 'PaperOS is your home app'
+                      : 'PaperOS is not your home app',
+                  subtitle: isHome
+                      ? 'Pressing Home returns to this screen.'
+                      : 'Use PaperOS as the launcher when you press Home.',
+                  trailing: Icon(
+                    isHome ? Icons.check_circle_outline : Icons.info_outline,
+                    size: 20,
+                    color: isHome ? palette.ink : palette.inkMuted,
+                  ),
+                  onTap: isHome ? null : () => _requestHomeRole(context, ref),
+                ),
+                if (isHome) ...<Widget>[
+                  const PaperRule(inset: PaperSpace.gutter),
+                  PaperSettingRow(
+                    label: 'Home app settings',
+                    subtitle:
+                        'Change the default home app in Android settings.',
+                    onTap: () => _openHomeSettings(context, ref),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const PaperRule(inset: PaperSpace.gutter),
+          PaperSettingRow(
+            label: 'Launcher settings',
+            subtitle: 'Icons, recents, pinned apps and Home layout.',
+            onTap: () => context.go(Routes.settings),
+          ),
         ],
       ),
     );

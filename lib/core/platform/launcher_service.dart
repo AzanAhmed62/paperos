@@ -18,7 +18,7 @@ abstract interface class LauncherService {
   AppCatalogSupport get support;
 
   /// The launchable applications visible to PaperOS.
-  Future<List<InstalledApp>> loadApps();
+  Future<AppCatalogSnapshot> loadApps();
 
   /// PNG bytes for a package's launcher icon, or null when it cannot be drawn.
   Future<Uint8List?> loadIcon(String packageName, {int sizePx = 96});
@@ -38,21 +38,21 @@ abstract interface class LauncherService {
 
 /// [LauncherService] backed by the Kotlin `AppCatalogChannel`.
 class PlatformLauncherService implements LauncherService {
-  PlatformLauncherService({MethodChannel? channel})
-    : _channel = channel ?? const MethodChannel(channelName);
+  PlatformLauncherService({MethodChannel? channel, bool? android})
+    : _channel = channel ?? const MethodChannel(channelName),
+      _android = android ?? defaultTargetPlatform == TargetPlatform.android;
 
   static const String channelName = 'dev.paperos/app_catalog';
 
   final MethodChannel _channel;
+  final bool _android;
 
   @override
   AppCatalogSupport get support =>
-      defaultTargetPlatform == TargetPlatform.android
-      ? AppCatalogSupport.full
-      : AppCatalogSupport.unsupported;
+      _android ? AppCatalogSupport.full : AppCatalogSupport.unsupported;
 
   @override
-  Future<List<InstalledApp>> loadApps() async {
+  Future<AppCatalogSnapshot> loadApps() async {
     if (support == AppCatalogSupport.unsupported) {
       throw const PaperException.platform(
         'Listing installed apps is only available on Android.',
@@ -62,12 +62,17 @@ class PlatformLauncherService implements LauncherService {
       final Map<Object?, Object?>? reply = await _channel
           .invokeMapMethod<Object?, Object?>('loadApps');
       final Object? raw = reply?['apps'];
-      if (raw is! List) return const <InstalledApp>[];
-      return raw
-          .whereType<Map<Object?, Object?>>()
-          .map(InstalledApp.fromMap)
-          .where((InstalledApp app) => app.packageName.isNotEmpty)
-          .toList(growable: false);
+      final List<InstalledApp> apps = raw is! List
+          ? const <InstalledApp>[]
+          : raw
+                .whereType<Map<Object?, Object?>>()
+                .map(InstalledApp.fromMap)
+                .where((InstalledApp app) => app.packageName.isNotEmpty)
+                .toList(growable: false);
+      return AppCatalogSnapshot(
+        apps: apps,
+        restricted: (reply?['restricted'] as bool?) ?? false,
+      );
     } on MissingPluginException {
       throw const PaperException.platform(
         'The Android app catalog is not available in this build.',

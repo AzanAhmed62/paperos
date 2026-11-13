@@ -1,8 +1,31 @@
 # Roadmap
 
-This roadmap records the state after v1.2 and keeps later work honest about the
+This roadmap records the state after v1.3 and keeps later work honest about the
 constraints that shaped the app. It is not a promise of dates or an invitation to
 add unrelated product surfaces.
+
+## Completed in v1.3
+
+- Formal four-level navigation hierarchy: Home, primary destinations, child
+  surfaces, and Android/system surfaces.
+- One shell-level `PopScope` and a pure Back policy. Back closes overlays first,
+  steps out of Files folders, returns non-Home destinations to Home, and is
+  consumed on Home instead of finishing the activity.
+- Router lifetime moved to `appRouterProvider`/`createAppRouter()`, with a
+  per-router navigator key so activity recreation and tests do not inherit stale
+  route state.
+- HOME, LAUNCHER and `ACTION_VIEW` intent classification through
+  `SystemIntentChannel`; HOME/LAUNCHER resets the hierarchy, VIEW still opens its
+  document. Cold-start stash, warm `onNewIntent`, resume drain and process
+  recovery are documented and tested.
+- App drawer recents and pinned strips, stable ordering, explicit refresh,
+  real/initial icons, system-app visibility, and honest restricted/empty states.
+- Home quick actions, pinned apps, optional date, comfortable/compact density,
+  HOME-role status and launcher-settings entry.
+- Settings launcher section with role status/request, refresh, icons, system
+  apps, recents, clear recents and a pinned-app editor.
+- 202 automated tests passing, with `dart format` and `flutter analyze` clean.
+- v1.3 navigation, launcher, release-manifest and engineering documentation.
 
 ## Completed in v1.2
 
@@ -86,6 +109,10 @@ behaviour:
 
 - install the debug APK on a physical Android device;
 - run the manual checklist in [`manual-testing.md`](manual-testing.md);
+- select PaperOS as Home and walk the exact Back hierarchy, including Home
+  consuming Back;
+- verify warm HOME/LAUNCHER and VIEW intents, duplicate tasks, and process
+  death/recreation;
 - exercise SAF import through several providers;
 - verify native PDF rendering and EPUB selection handles;
 - inspect e-ink ghosting, refresh timing, and system font scaling;

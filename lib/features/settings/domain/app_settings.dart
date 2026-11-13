@@ -20,6 +20,28 @@ enum HomeSection {
   final String label;
 }
 
+/// Vertical rhythm of Paper Home.
+///
+/// Density changes spacing, not type size: the interface text scale remains the
+/// one accessibility control for how large text is. A second "launcher text
+/// scale" would give two controls that fight over the same pixels.
+enum HomeDensity {
+  comfortable('comfortable', 'Comfortable'),
+  compact('compact', 'Compact');
+
+  const HomeDensity(this.id, this.label);
+
+  final String id;
+  final String label;
+
+  static HomeDensity fromId(String? id) {
+    for (final HomeDensity density in HomeDensity.values) {
+      if (density.id == id) return density;
+    }
+    return HomeDensity.comfortable;
+  }
+}
+
 /// How the reader lays out a reflowable document.
 enum ReaderFlow {
   paged('paged', 'Paged'),
@@ -182,8 +204,17 @@ class LauncherSettings {
   const LauncherSettings({
     this.showIcons = true,
     this.showSystemApps = false,
+    this.showRecents = true,
     this.favoritePackages = const <String>[],
+    this.recentPackages = const <String>[],
   });
+
+  /// Maximum number of remembered launches.
+  ///
+  /// Recents are a convenience strip, not a usage log: a bounded list keeps the
+  /// drawer stable and means the stored settings document cannot grow without
+  /// limit as apps are opened over months.
+  static const int maxRecents = 8;
 
   /// Show the real launcher icon next to each app in the app drawer.
   final bool showIcons;
@@ -191,35 +222,57 @@ class LauncherSettings {
   /// Include preinstalled system apps in the drawer.
   final bool showSystemApps;
 
+  /// Show the recently launched strip at the top of the drawer.
+  final bool showRecents;
+
   /// Ordered package names pinned to the top of the drawer.
   final List<String> favoritePackages;
+
+  /// Package names launched most recently, newest first, at most
+  /// [maxRecents]. Stored beside favourites so one settings document remains
+  /// the single source of launcher preferences.
+  final List<String> recentPackages;
 
   LauncherSettings copyWith({
     bool? showIcons,
     bool? showSystemApps,
+    bool? showRecents,
     List<String>? favoritePackages,
+    List<String>? recentPackages,
   }) {
     return LauncherSettings(
       showIcons: showIcons ?? this.showIcons,
       showSystemApps: showSystemApps ?? this.showSystemApps,
+      showRecents: showRecents ?? this.showRecents,
       favoritePackages: favoritePackages ?? this.favoritePackages,
+      recentPackages: recentPackages ?? this.recentPackages,
     );
   }
 
   Map<String, Object?> toJson() => <String, Object?>{
     'showIcons': showIcons,
     'showSystemApps': showSystemApps,
+    'showRecents': showRecents,
     'favoritePackages': favoritePackages,
+    'recentPackages': recentPackages,
   };
 
   static LauncherSettings fromJson(Map<String, Object?> json) {
-    final Object? raw = json['favoritePackages'];
+    List<String> packages(String key) {
+      final Object? raw = json[key];
+      return raw is List
+          ? raw.whereType<String>().toList(growable: false)
+          : const <String>[];
+    }
+
     return LauncherSettings(
       showIcons: (json['showIcons'] as bool?) ?? true,
       showSystemApps: (json['showSystemApps'] as bool?) ?? false,
-      favoritePackages: raw is List
-          ? raw.whereType<String>().toList(growable: false)
-          : const <String>[],
+      showRecents: (json['showRecents'] as bool?) ?? true,
+      favoritePackages: packages('favoritePackages'),
+      recentPackages: packages('recentPackages')
+          .take(maxRecents)
+          .toList(growable: false),
     );
   }
 }
@@ -229,17 +282,33 @@ class HomeSettings {
   const HomeSettings({
     this.hiddenSections = const <HomeSection>{},
     this.showClock = true,
+    this.showDate = true,
+    this.density = HomeDensity.comfortable,
   });
 
   final Set<HomeSection> hiddenSections;
   final bool showClock;
 
+  /// Show the long date under the clock. Independent of the clock so an e-ink
+  /// home screen can keep the date while dropping a seconds-resolution clock.
+  final bool showDate;
+
+  /// Spacing used between Paper Home blocks.
+  final HomeDensity density;
+
   bool shows(HomeSection section) => !hiddenSections.contains(section);
 
-  HomeSettings copyWith({Set<HomeSection>? hiddenSections, bool? showClock}) {
+  HomeSettings copyWith({
+    Set<HomeSection>? hiddenSections,
+    bool? showClock,
+    bool? showDate,
+    HomeDensity? density,
+  }) {
     return HomeSettings(
       hiddenSections: hiddenSections ?? this.hiddenSections,
       showClock: showClock ?? this.showClock,
+      showDate: showDate ?? this.showDate,
+      density: density ?? this.density,
     );
   }
 
@@ -248,6 +317,8 @@ class HomeSettings {
         .map((HomeSection s) => s.id)
         .toList(growable: false),
     'showClock': showClock,
+    'showDate': showDate,
+    'density': density.id,
   };
 
   static HomeSettings fromJson(Map<String, Object?> json) {
@@ -263,6 +334,8 @@ class HomeSettings {
     return HomeSettings(
       hiddenSections: hidden,
       showClock: (json['showClock'] as bool?) ?? true,
+      showDate: (json['showDate'] as bool?) ?? true,
+      density: HomeDensity.fromId(json['density'] as String?),
     );
   }
 }

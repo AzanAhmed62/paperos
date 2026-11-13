@@ -5,12 +5,14 @@ import '../config/app_config.dart';
 import '../core/display/display_policy.dart';
 import '../features/display/application/display_providers.dart';
 import '../features/files/application/external_open_controller.dart';
+import '../features/launcher/application/launcher_providers.dart';
 import '../features/settings/application/settings_controller.dart';
 import '../features/settings/domain/app_settings.dart';
 import '../theme/paper_scroll_behavior.dart';
 import '../theme/paper_theme.dart';
 import '../theme/paper_typography.dart';
 import 'router.dart';
+import 'system_intent_controller.dart';
 
 /// The PaperOS root.
 ///
@@ -33,6 +35,7 @@ class _PaperAppState extends ConsumerState<PaperApp>
     // Reading (not watching) builds the singleton for the app's lifetime. It
     // has no visual output; a document it accepts is opened through the router.
     ref.read(externalOpenControllerProvider);
+    ref.read(systemIntentControllerProvider);
   }
 
   @override
@@ -45,8 +48,12 @@ class _PaperAppState extends ConsumerState<PaperApp>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // A VIEW intent that arrived while backgrounded may only be visible on
     // resume; re-draining is cheap and idempotent (the native side clears it).
+    // The HOME role can also change while the user is in system settings, so
+    // the status is re-read rather than trusted from before the pause.
     if (state == AppLifecycleState.resumed) {
       ref.read(externalOpenControllerProvider.notifier).drainPending();
+      ref.read(systemIntentControllerProvider.notifier).drainPending();
+      ref.invalidate(homeRoleProvider);
     }
   }
 
@@ -69,7 +76,7 @@ class _PaperAppState extends ConsumerState<PaperApp>
         einkFriendly: display.isEink,
         selectionOpacity: display.selectionOpacity,
       ),
-      routerConfig: appRouter,
+      routerConfig: ref.watch(appRouterProvider),
       builder: (BuildContext context, Widget? child) {
         // The system font scale is deliberately not multiplied in here.
         // PaperOS applies exactly one scale of its own, from Settings: the

@@ -77,6 +77,43 @@ class SettingsController extends Notifier<AppSettings> {
     state.copyWith(launcher: state.launcher.copyWith(showSystemApps: show)),
   );
 
+  Future<void> setShowRecents(bool show) => _write(
+    state.copyWith(launcher: state.launcher.copyWith(showRecents: show)),
+  );
+
+  /// Moves [packageName] to the front of the recents strip.
+  ///
+  /// Bounded by [LauncherSettings.maxRecents]. The list is intentionally not a
+  /// launch history with timestamps: the drawer only needs "what did I use
+  /// lately", and storing more would turn a preference into a usage log.
+  Future<void> recordRecentApp(String packageName) {
+    final List<String> current = List<String>.from(
+      state.launcher.recentPackages,
+    )..remove(packageName);
+    return _write(
+      state.copyWith(
+        launcher: state.launcher.copyWith(
+          recentPackages: <String>[
+            packageName,
+            ...current,
+          ].take(LauncherSettings.maxRecents).toList(growable: false),
+        ),
+      ),
+    );
+  }
+
+  Future<void> clearRecentApps() => _write(
+    state.copyWith(
+      launcher: state.launcher.copyWith(recentPackages: const <String>[]),
+    ),
+  );
+
+  Future<void> setShowDate(bool show) =>
+      _write(state.copyWith(home: state.home.copyWith(showDate: show)));
+
+  Future<void> setHomeDensity(HomeDensity density) =>
+      _write(state.copyWith(home: state.home.copyWith(density: density)));
+
   Future<void> setHomeSectionVisible(HomeSection section, bool visible) {
     final Set<HomeSection> hidden = Set<HomeSection>.from(
       state.home.hiddenSections,

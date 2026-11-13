@@ -37,6 +37,24 @@ class InstalledApp {
   int get hashCode => packageName.hashCode;
 }
 
+/// The result of one catalogue read.
+///
+/// [restricted] is the platform's own admission that the list is almost
+/// certainly incomplete — on Android 11+ that means package visibility blocked
+/// the query. Keeping the flag beside the list lets the drawer explain the
+/// limit instead of showing a convincing but false "no apps installed" screen.
+@immutable
+class AppCatalogSnapshot {
+  const AppCatalogSnapshot({required this.apps, this.restricted = false});
+
+  static const AppCatalogSnapshot empty = AppCatalogSnapshot(
+    apps: <InstalledApp>[],
+  );
+
+  final List<InstalledApp> apps;
+  final bool restricted;
+}
+
 /// The result of asking Android to make PaperOS the home app.
 enum HomeRoleFlow {
   /// The system role dialog was opened. The user still has to confirm.

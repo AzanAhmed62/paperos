@@ -33,6 +33,26 @@ The debug manifest is expected to add `INTERNET` for Flutter's development
 tooling. Debug artifacts are not release artifacts. The release build's merged
 manifest must be audited separately; see `release-process.md`.
 
+## Launcher intent boundary
+
+`MainActivity` is the only exported activity because it must be launchable,
+selectable as HOME, and able to receive PDF/text documents. Its intent filters do
+not grant filesystem access; a `VIEW` intent carries a one-shot content grant
+that PaperOS consumes and does not persist as a broad permission.
+
+`SystemIntentChannel` classifies the activity intent:
+
+- `MAIN` + `HOME` and `MAIN` + `LAUNCHER` are launcher traffic. They reset the
+  visible hierarchy to Paper Home and clear transient Files/drawer state.
+- `ACTION_VIEW` belongs to `FileBrowserChannel` and the document-import path.
+  `SystemIntentChannel` never reads or stores the URI.
+- Unknown intents are ignored.
+
+This separation is a security and correctness boundary: a HOME intent must not be
+able to select a stale document route, and a document intent must not be treated
+as permission to reset or replace the user's current context. The channel holds
+no credentials and has no storage access.
+
 ## Storage model
 
 - Imported books and covers are copied into the app's private documents
@@ -70,7 +90,7 @@ construct a different archive. The per-entry SHA-256 and the manifest checksum
 detect corruption and casual modification; they are **not** a signature and do
 not authenticate the author.
 
-PaperOS 1.2 deliberately does not invent encryption. It rejects encrypted ZIP
+PaperOS deliberately does not invent encryption. It rejects encrypted ZIP
 entries instead of pretending to support them. A future encryption format must:
 
 - use a mature, reviewed library and a standard password-based KDF;
@@ -152,7 +172,7 @@ raise the minimum Dart/Flutter version.
 - The debug manifest contains `INTERNET`; only a release manifest audit is
   evidence for distribution.
 - The app's private trash and safety snapshots are not user-exportable through
-  the UI in 1.2.
+  the UI in 1.3.
 
 ## Audit commands
 

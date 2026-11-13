@@ -1,42 +1,51 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../app/providers.dart';
 import '../../../core/errors/paper_exception.dart';
 import '../../../core/platform/installed_app.dart';
 import '../../../shared/widgets/paper_widgets.dart';
 import '../../../theme/paper_palette.dart';
 import '../../../theme/paper_space.dart';
 import '../../../theme/paper_typography.dart';
+import '../../settings/application/settings_controller.dart';
+import '../../settings/domain/app_settings.dart';
 import '../application/launcher_providers.dart';
+import 'installed_app_icon.dart';
 
 /// The app drawer.
 ///
 /// A launcher is only as good as this screen, so it is a plain, ordered,
-/// searchable list of what is actually installed. It reports honestly when the
-/// platform will not tell it: a launcher that silently shows nothing is worse
-/// than one that explains the package-visibility limit.
-class AppsScreen extends ConsumerStatefulWidget {
+/// searchable list of what is actually installed. Favourites and recents are
+/// shortcuts into the same catalogue, not a second list: an app can be pinned
+/// from its row and still appears in the full alphabetical list below.
+///
+/// It reports honestly when the platform will not tell it: a launcher that
+/// silently shows nothing is worse than one that explains the package-visibility
+/// limit.
+class AppsScreen extends ConsumerWidget {
   const AppsScreen({super.key});
 
   @override
-  ConsumerState<AppsScreen> createState() => _AppsScreenState();
-}
-
-class _AppsScreenState extends ConsumerState<AppsScreen> {
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final AppCatalogSupport support = ref.watch(appCatalogSupportProvider);
+    final bool restricted = ref.watch(appCatalogRestrictedProvider);
     final AsyncValue<List<InstalledApp>> apps = ref.watch(visibleAppsProvider);
+    final LauncherSettings launcher = ref.watch(settingsProvider).launcher;
     final String query = ref.watch(appSearchProvider);
+    final LauncherActions actions = ref.read(launcherActionsProvider);
 
     return Scaffold(
       appBar: PaperTopBar(
         title: 'Apps',
         subtitle: _subtitleFor(apps.value),
         onBack: () => Navigator.of(context).maybePop(),
+        actions: <Widget>[
+          IconButton(
+            onPressed: apps.isLoading ? null : actions.refreshApps,
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh apps',
+          ),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(48),
           child: Padding(
@@ -62,7 +71,9 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
               'This platform does not provide it.',
           icon: Icons.apps_outlined,
         ),
-        AppCatalogSupport.restricted => const _RestrictedNotice(),
+        AppCatalogSupport.restricted => _RestrictedNotice(
+          onReload: actions.refreshApps,
+        ),
         AppCatalogSupport.full => apps.when(
           loading: () => const PaperLoading(label: 'Reading installed apps'),
           error: (Object error, StackTrace stack) => PaperErrorView(
@@ -70,7 +81,7 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
               final PaperException failure => failure.message,
               _ => 'The installed app list could not be read.',
             },
-            onRetry: () => ref.invalidate(installedAppsProvider),
+            onRetry: actions.refreshApps,
           ),
           data: (List<InstalledApp> items) {
             if (items.isEmpty) {
@@ -84,20 +95,22 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
                     : 'No installed app matches "$query".',
                 icon: Icons.search_off_outlined,
                 action: query.isEmpty
-                    ? null
+                    ? PaperButton(
+                        label: 'Reload',
+                        onPressed: actions.refreshApps,
+                      )
                     : PaperButton(
                         label: 'Clear search',
                         onPressed: ref.read(appSearchProvider.notifier).clear,
                       ),
               );
             }
-            return ListView.builder(
-              padding: const EdgeInsets.only(bottom: PaperSpace.xxl),
-              itemCount: items.length,
-              itemBuilder: (BuildContext context, int index) {
-                final InstalledApp app = items[index];
-                return _AppRow(app: app, showRule: index != items.length - 1);
-              },
+            return _AppList(
+              items: items,
+              query: query,
+              restricted: restricted,
+              showIcons: launcher.showIcons,
+              onReload: actions.refreshApps,
             );
           },
         ),
@@ -111,12 +124,197 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
   }
 }
 
+class _AppList extends ConsumerWidget {
+  const _AppList({
+    required this.items,
+    required this.query,
+    required this.restricted,
+    required this.showIcons,
+    required this.onReload,
+  });
+
+  final List<InstalledApp> items;
+  final String query;
+  final bool restricted;
+  final bool showIcons;
+  final VoidCallback onReload;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final List<InstalledApp> favorites = ref.watch(favoriteAppsProvider);
+    final List<InstalledApp> recents = ref.watch(recentAppsProvider);
+
+    final List<Widget> header = <Widget>[
+      if (restricted) _RestrictedBanner(onReload: onReload),
+      if (query.isEmpty && favorites.isNotEmpty)
+        _AppStrip(
+          label: 'Pinned',
+          apps: favorites,
+          showIcons: showIcons,
+          onLongPress: (InstalledApp app) =>
+              ref.read(launcherActionsProvider).toggleFavorite(app),
+        ),
+      if (query.isEmpty && recents.isNotEmpty)
+        _AppStrip(
+          label: 'Recent',
+          apps: recents,
+          showIcons: showIcons,
+          trailing: PaperTextAction(
+            label: 'Clear',
+            onPressed: ref.read(launcherActionsProvider).clearRecents,
+          ),
+        ),
+      if (query.isEmpty)
+        const Padding(
+          padding: EdgeInsets.fromLTRB(
+            PaperSpace.gutter,
+            PaperSpace.md,
+            PaperSpace.gutter,
+            PaperSpace.sm,
+          ),
+          child: PaperSectionLabel('All apps'),
+        ),
+    ];
+
+    return ListView.builder(
+      padding: const EdgeInsets.only(bottom: PaperSpace.xxl),
+      itemCount: header.length + items.length,
+      itemBuilder: (BuildContext context, int index) {
+        if (index < header.length) return header[index];
+        final int appIndex = index - header.length;
+        final InstalledApp app = items[appIndex];
+        return _AppRow(
+          app: app,
+          showIcons: showIcons,
+          showRule: appIndex != items.length - 1,
+        );
+      },
+    );
+  }
+}
+
+/// A horizontal shortcut strip for pinned or recent apps.
+class _AppStrip extends ConsumerWidget {
+  const _AppStrip({
+    required this.label,
+    required this.apps,
+    required this.showIcons,
+    this.onLongPress,
+    this.trailing,
+  });
+
+  final String label;
+  final List<InstalledApp> apps;
+  final bool showIcons;
+  final ValueChanged<InstalledApp>? onLongPress;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            PaperSpace.gutter,
+            PaperSpace.md,
+            PaperSpace.gutter,
+            PaperSpace.sm,
+          ),
+          child: PaperSectionLabel(label, trailing: trailing),
+        ),
+        SizedBox(
+          height: 92,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: PaperSpace.gutter),
+            itemCount: apps.length,
+            separatorBuilder: (BuildContext context, int index) =>
+                const SizedBox(width: PaperSpace.md),
+            itemBuilder: (BuildContext context, int index) {
+              final InstalledApp app = apps[index];
+              return _StripTile(
+                app: app,
+                showIcon: showIcons,
+                onTap: () => _launch(context, ref, app),
+                onLongPress: onLongPress == null
+                    ? null
+                    : () => onLongPress!(app),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _launch(
+    BuildContext context,
+    WidgetRef ref,
+    InstalledApp app,
+  ) async {
+    try {
+      await ref.read(launcherActionsProvider).launch(app);
+    } on PaperException catch (error) {
+      if (!context.mounted) return;
+      PaperToast.show(context, error.message, icon: Icons.error_outline);
+    }
+  }
+}
+
+class _StripTile extends StatelessWidget {
+  const _StripTile({
+    required this.app,
+    required this.showIcon,
+    required this.onTap,
+    this.onLongPress,
+  });
+
+  final InstalledApp app;
+  final bool showIcon;
+  final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    final PaperTypography type = PaperTypography.of(context);
+
+    return Semantics(
+      button: true,
+      label: 'Open ${app.label}',
+      child: InkWell(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: SizedBox(
+          width: 64,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              InstalledAppIcon(app: app, size: 40, showIcon: showIcon),
+              const SizedBox(height: PaperSpace.xs),
+              Text(
+                app.label.isEmpty ? app.packageName : app.label,
+                style: type.caption,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Shown when Android returned a list that is almost certainly incomplete.
 ///
 /// This is the Android 11+ package-visibility failure mode, and the user can
 /// only fix it by knowing about it.
 class _RestrictedNotice extends StatelessWidget {
-  const _RestrictedNotice();
+  const _RestrictedNotice({required this.onReload});
+
+  final VoidCallback onReload;
 
   @override
   Widget build(BuildContext context) {
@@ -131,36 +329,91 @@ class _RestrictedNotice extends StatelessWidget {
               'device.',
           icon: Icons.info_outline,
         ),
-        PaperButton(
-          label: 'Reload',
-          onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Pull the list again from Settings.')),
-          ),
-        ),
+        PaperButton(label: 'Reload', onPressed: onReload),
       ],
     );
   }
 }
 
+class _RestrictedBanner extends StatelessWidget {
+  const _RestrictedBanner({required this.onReload});
+
+  final VoidCallback onReload;
+
+  @override
+  Widget build(BuildContext context) {
+    final PaperPalette palette = paperPalette(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        PaperSpace.gutter,
+        PaperSpace.md,
+        PaperSpace.gutter,
+        0,
+      ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(border: Border.all(color: palette.rule)),
+        child: Padding(
+          padding: const EdgeInsets.all(PaperSpace.md),
+          child: Row(
+            children: <Widget>[
+              Icon(Icons.info_outline, size: 18, color: palette.inkMuted),
+              const SizedBox(width: PaperSpace.sm),
+              Expanded(
+                child: Text(
+                  'Android reported very few apps. The list may be restricted.',
+                  style: PaperTypography.of(context).bodyQuiet,
+                ),
+              ),
+              PaperTextAction(label: 'Reload', onPressed: onReload),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _AppRow extends ConsumerWidget {
-  const _AppRow({required this.app, required this.showRule});
+  const _AppRow({
+    required this.app,
+    required this.showIcons,
+    required this.showRule,
+  });
 
   final InstalledApp app;
+  final bool showIcons;
   final bool showRule;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final PaperPalette palette = paperPalette(context);
+    final bool pinned = ref.watch(
+      settingsProvider.select(
+        (AppSettings settings) =>
+            settings.launcher.favoritePackages.contains(app.packageName),
+      ),
+    );
 
     return Column(
       children: <Widget>[
         PaperListTile(
           title: app.label.isEmpty ? app.packageName : app.label,
           subtitle: app.packageName,
-          leading: _AppIcon(app: app, palette: palette),
-          trailing: Icon(Icons.north_east, size: 16, color: palette.inkFaint),
+          leading: InstalledAppIcon(app: app, size: 32, showIcon: showIcons),
+          trailing: IconButton(
+            onPressed: () =>
+                ref.read(launcherActionsProvider).toggleFavorite(app),
+            icon: Icon(
+              pinned ? Icons.push_pin : Icons.push_pin_outlined,
+              size: 20,
+            ),
+            color: pinned ? palette.ink : palette.inkFaint,
+            tooltip: pinned ? 'Unpin ${app.label}' : 'Pin ${app.label}',
+          ),
           semanticLabel: 'Launch ${app.label}',
           onTap: () => _launch(context, ref),
+          onLongPress: () =>
+              ref.read(launcherActionsProvider).toggleFavorite(app),
         ),
         if (showRule) const PaperRule(inset: PaperSpace.gutter),
       ],
@@ -169,102 +422,10 @@ class _AppRow extends ConsumerWidget {
 
   Future<void> _launch(BuildContext context, WidgetRef ref) async {
     try {
-      await ref.read(launcherServiceProvider).launchApp(app);
+      await ref.read(launcherActionsProvider).launch(app);
     } on PaperException catch (error) {
       if (!context.mounted) return;
       PaperToast.show(context, error.message, icon: Icons.error_outline);
     }
-  }
-}
-
-/// The launcher icon, rendered from the platform on first use and cached in
-/// memory for the rest of the session.
-///
-/// Icons are requested lazily by the row that needs them: asking Android to
-/// rasterise 200 icons up front would make the drawer feel slow for the dozen
-/// the user actually looks at.
-class _AppIcon extends ConsumerStatefulWidget {
-  const _AppIcon({required this.app, required this.palette});
-
-  final InstalledApp app;
-  final PaperPalette palette;
-
-  @override
-  ConsumerState<_AppIcon> createState() => _AppIconState();
-}
-
-class _AppIconState extends ConsumerState<_AppIcon> {
-  Uint8List? _bytes;
-  bool _requested = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void didUpdateWidget(_AppIcon oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.app.packageName != widget.app.packageName) _load();
-  }
-
-  Future<void> _load() async {
-    if (_requested) return;
-    _requested = true;
-    final Uint8List? bytes = await ref
-        .read(appCatalogProvider)
-        .icon(widget.app.packageName);
-    if (!mounted) return;
-    setState(() => _bytes = bytes);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final Uint8List? bytes = _bytes;
-    return SizedBox(
-      width: 32,
-      height: 32,
-      child: bytes == null
-          ? DecoratedBox(
-              decoration: BoxDecoration(
-                border: Border.all(color: widget.palette.rule),
-              ),
-              child: Center(
-                child: Text(
-                  _initial(),
-                  style: PaperTypography.of(context).meta,
-                ),
-              ),
-            )
-          : Image.memory(
-              bytes,
-              width: 32,
-              height: 32,
-              filterQuality: FilterQuality.low,
-              gaplessPlayback: true,
-              errorBuilder:
-                  (BuildContext context, Object error, StackTrace? stack) {
-                    return DecoratedBox(
-                      decoration: BoxDecoration(
-                        border: Border.all(color: widget.palette.rule),
-                      ),
-                      child: Center(
-                        child: Text(
-                          _initial(),
-                          style: PaperTypography.of(context).meta,
-                        ),
-                      ),
-                    );
-                  },
-            ),
-    );
-  }
-
-  /// First letter of the label, so a row is never a blank square.
-  String _initial() {
-    final String label = widget.app.label.trim();
-    if (label.isEmpty) return '?';
-    return label.characters.first.toUpperCase();
   }
 }

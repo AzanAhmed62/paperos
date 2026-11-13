@@ -25,6 +25,10 @@ void main() {
     expect(settings.reader.turnMode, PageTurnMode.tap);
     expect(settings.reader.fontSize, 1.0);
     expect(settings.launcher.favoritePackages, isEmpty);
+    expect(settings.launcher.recentPackages, isEmpty);
+    expect(settings.launcher.showRecents, isTrue);
+    expect(settings.home.showDate, isTrue);
+    expect(settings.home.density, HomeDensity.comfortable);
     expect(settings.askOnExit, isTrue);
   });
 
@@ -46,11 +50,15 @@ void main() {
       launcher: const LauncherSettings(
         showIcons: false,
         showSystemApps: true,
+        showRecents: false,
         favoritePackages: <String>['com.example.reader', 'org.mozilla.firefox'],
+        recentPackages: <String>['com.example.notes', 'com.example.reader'],
       ),
       home: const HomeSettings(
         hiddenSections: <HomeSection>{HomeSection.today, HomeSection.search},
         showClock: false,
+        showDate: false,
+        density: HomeDensity.compact,
       ),
       askOnExit: false,
     );
@@ -72,15 +80,22 @@ void main() {
     expect(loaded.reader.keepScreenOn, isTrue);
     expect(loaded.launcher.showIcons, isFalse);
     expect(loaded.launcher.showSystemApps, isTrue);
+    expect(loaded.launcher.showRecents, isFalse);
     expect(loaded.launcher.favoritePackages, <String>[
       'com.example.reader',
       'org.mozilla.firefox',
+    ]);
+    expect(loaded.launcher.recentPackages, <String>[
+      'com.example.notes',
+      'com.example.reader',
     ]);
     expect(loaded.home.hiddenSections, <HomeSection>{
       HomeSection.today,
       HomeSection.search,
     });
     expect(loaded.home.showClock, isFalse);
+    expect(loaded.home.showDate, isFalse);
+    expect(loaded.home.density, HomeDensity.compact);
     expect(loaded.askOnExit, isFalse);
   });
 

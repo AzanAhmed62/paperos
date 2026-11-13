@@ -55,7 +55,7 @@ class ExternalOpenController extends Notifier<int> {
         .importBrowsedEntry(entry);
     if (imported != null) {
       state = state + 1;
-      appRouter.push(Routes.readerPath(imported.id));
+      ref.read(appRouterProvider).push(Routes.readerPath(imported.id));
     }
   }
 

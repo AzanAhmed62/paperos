@@ -90,4 +90,29 @@ void main() {
     await settle(tester);
     expect(destination('home'), findsOneWidget);
   });
+
+  testWidgets('switching destinations preserves each branch state', (
+    WidgetTester tester,
+  ) async {
+    await pumpApp(tester);
+
+    await tester.tap(destination('notes'));
+    await settle(tester);
+
+    final Finder search = find.byType(TextField).first;
+    await tester.enterText(search, 'paper');
+    await tester.pump();
+    expect(tester.widget<TextField>(search).controller?.text, 'paper');
+
+    await tester.tap(destination('library'));
+    await settle(tester);
+    await tester.tap(destination('notes'));
+    await settle(tester);
+
+    expect(
+      tester.widget<TextField>(find.byType(TextField).first).controller?.text,
+      'paper',
+      reason: 'the indexed stack must keep the Notes branch alive',
+    );
+  });
 }

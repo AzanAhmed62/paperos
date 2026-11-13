@@ -170,6 +170,31 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
               const PaperRule(inset: PaperSpace.gutter),
+              PaperSettingRow(
+                label: 'Date',
+                subtitle: 'The long date under the clock.',
+                trailing: PaperSwitch(
+                  value: settings.home.showDate,
+                  onChanged: controller.setShowDate,
+                ),
+              ),
+              const PaperRule(inset: PaperSpace.gutter),
+              PaperSettingRow(
+                label: 'Layout density',
+                subtitle: 'Compact fits more on screen without shrinking text.',
+                trailing: Wrap(
+                  spacing: PaperSpace.xs,
+                  children: <Widget>[
+                    for (final HomeDensity density in HomeDensity.values)
+                      PaperChip(
+                        label: density.label,
+                        selected: settings.home.density == density,
+                        onTap: () => controller.setHomeDensity(density),
+                      ),
+                  ],
+                ),
+              ),
+              const PaperRule(inset: PaperSpace.gutter),
               for (final HomeSection section in HomeSection.values) ...<Widget>[
                 PaperSettingRow(
                   label: section.label,
@@ -184,21 +209,7 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ],
           ),
-          _Section(
-            title: 'App drawer',
-            children: <Widget>[
-              PaperSettingRow(
-                label: 'Show system apps',
-                subtitle: 'Includes preinstalled apps such as Settings.',
-                trailing: PaperSwitch(
-                  value: settings.launcher.showSystemApps,
-                  onChanged: controller.setShowSystemApps,
-                ),
-              ),
-              const PaperRule(inset: PaperSpace.gutter),
-              const _FavouritesEditor(),
-            ],
-          ),
+          const _LauncherSection(),
           const BackupSection(),
           const _StorageSection(),
           const _AboutSection(),
@@ -347,6 +358,153 @@ class _Swatch extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Launcher preferences and HOME-role status.
+///
+/// The status is deliberately part of Settings as well as Paper Home: a user
+/// who is diagnosing "Home opens the old launcher" should not have to reason
+/// about which screen is authoritative.
+class _LauncherSection extends ConsumerWidget {
+  const _LauncherSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppSettings settings = ref.watch(settingsProvider);
+    final SettingsController controller = ref.read(settingsProvider.notifier);
+    final AsyncValue<bool> role = ref.watch(homeRoleProvider);
+    final int recentCount = settings.launcher.recentPackages.length;
+
+    return _Section(
+      title: 'Launcher',
+      children: <Widget>[
+        role.when(
+          loading: () => const PaperSettingRow(
+            label: 'Home app',
+            subtitle: 'Checking with Android…',
+          ),
+          error: (Object error, StackTrace stack) => const PaperSettingRow(
+            label: 'Home app',
+            subtitle: 'Android did not report the current home app.',
+          ),
+          data: (bool isHome) => PaperSettingRow(
+            label: isHome
+                ? 'PaperOS is the home app'
+                : 'Set PaperOS as the home app',
+            subtitle: isHome
+                ? 'Pressing Home opens Paper Home.'
+                : 'Android will ask you to confirm the change.',
+            trailing: isHome
+                ? Icon(
+                    Icons.check_circle_outline,
+                    size: 20,
+                    color: paperPalette(context).ink,
+                  )
+                : null,
+            onTap: isHome
+                ? () => _openHomeSettings(context, ref)
+                : () => _requestHomeRole(context, ref),
+          ),
+        ),
+        const PaperRule(inset: PaperSpace.gutter),
+        PaperSettingRow(
+          label: 'Refresh installed apps',
+          subtitle: 'Re-reads the app list and icons from Android.',
+          onTap: () {
+            ref.read(launcherActionsProvider).refreshApps();
+            PaperToast.show(
+              context,
+              'Refreshing the installed app list',
+              icon: Icons.refresh,
+            );
+          },
+        ),
+        const PaperRule(inset: PaperSpace.gutter),
+        PaperSettingRow(
+          label: 'Show app icons',
+          subtitle: 'Draw each app’s real icon instead of its initial.',
+          trailing: PaperSwitch(
+            value: settings.launcher.showIcons,
+            onChanged: controller.setShowAppIcons,
+          ),
+        ),
+        const PaperRule(inset: PaperSpace.gutter),
+        PaperSettingRow(
+          label: 'Show system apps',
+          subtitle: 'Includes preinstalled apps such as Settings.',
+          trailing: PaperSwitch(
+            value: settings.launcher.showSystemApps,
+            onChanged: controller.setShowSystemApps,
+          ),
+        ),
+        const PaperRule(inset: PaperSpace.gutter),
+        PaperSettingRow(
+          label: 'Show recent apps',
+          subtitle: 'A shortcut strip at the top of the app drawer.',
+          trailing: PaperSwitch(
+            value: settings.launcher.showRecents,
+            onChanged: controller.setShowRecents,
+          ),
+        ),
+        const PaperRule(inset: PaperSpace.gutter),
+        PaperSettingRow(
+          label: 'Clear recent apps',
+          subtitle: recentCount == 0
+              ? 'No recent apps remembered.'
+              : '$recentCount app${recentCount == 1 ? '' : 's'} remembered.',
+          onTap: recentCount == 0
+              ? null
+              : () => ref.read(launcherActionsProvider).clearRecents(),
+        ),
+        const PaperRule(inset: PaperSpace.gutter),
+        const _FavouritesEditor(),
+      ],
+    );
+  }
+
+  Future<void> _requestHomeRole(BuildContext context, WidgetRef ref) async {
+    final LauncherActions actions = ref.read(launcherActionsProvider);
+    try {
+      final HomeRoleStatus status = await actions.requestHomeRole();
+      if (!context.mounted) return;
+      switch (status.flow) {
+        case HomeRoleFlow.roleRequest:
+          PaperToast.show(
+            context,
+            status.isHomeApp
+                ? 'PaperOS is now your home app.'
+                : 'Home app not set. You can change it in Android settings.',
+            icon: Icons.home_outlined,
+          );
+        case HomeRoleFlow.settings:
+          await actions.openHomeSettings();
+        case HomeRoleFlow.already:
+          PaperToast.show(
+            context,
+            'PaperOS is already your home app.',
+            icon: Icons.home_outlined,
+          );
+        case HomeRoleFlow.unavailable:
+          PaperToast.show(
+            context,
+            'This Android version cannot assign the home role from an app.',
+            icon: Icons.info_outline,
+          );
+      }
+    } on PaperException catch (error) {
+      if (!context.mounted) return;
+      PaperToast.show(context, error.message, icon: Icons.info_outline);
+    }
+  }
+
+  Future<void> _openHomeSettings(BuildContext context, WidgetRef ref) async {
+    try {
+      await ref.read(launcherActionsProvider).openHomeSettings();
+    } on PaperException catch (error) {
+      if (!context.mounted) return;
+      PaperToast.show(context, error.message, icon: Icons.info_outline);
+    }
   }
 }
 
