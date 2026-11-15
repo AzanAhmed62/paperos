@@ -65,6 +65,8 @@ class ExternalOpenController extends Notifier<int> {
         return 'document.pdf';
       case 'text/plain':
         return 'document.txt';
+      case 'application/epub+zip':
+        return 'document.epub';
       default:
         return 'document';
     }

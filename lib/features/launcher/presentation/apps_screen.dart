@@ -28,7 +28,6 @@ class AppsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final AppCatalogSupport support = ref.watch(appCatalogSupportProvider);
-    final bool restricted = ref.watch(appCatalogRestrictedProvider);
     final AsyncValue<List<InstalledApp>> apps = ref.watch(visibleAppsProvider);
     final LauncherSettings launcher = ref.watch(settingsProvider).launcher;
     final String query = ref.watch(appSearchProvider);
@@ -71,8 +70,14 @@ class AppsScreen extends ConsumerWidget {
               'This platform does not provide it.',
           icon: Icons.apps_outlined,
         ),
-        AppCatalogSupport.restricted => _RestrictedNotice(
-          onReload: actions.refreshApps,
+        AppCatalogSupport.restricted => PaperEmptyState(
+          title: 'No launchable apps reported',
+          message:
+              'Android returned an empty app list. Refresh to ask again; if '
+              'the list stays empty, check this device’s app visibility '
+              'settings.',
+          icon: Icons.info_outline,
+          action: PaperButton(label: 'Reload', onPressed: actions.refreshApps),
         ),
         AppCatalogSupport.full => apps.when(
           loading: () => const PaperLoading(label: 'Reading installed apps'),
@@ -90,8 +95,8 @@ class AppsScreen extends ConsumerWidget {
                     ? 'No launchable apps found'
                     : 'No matches',
                 message: query.isEmpty
-                    ? 'Android reported no launchable activities. This usually '
-                          'means the app list query was blocked.'
+                    ? 'Android reported no launchable activities. Refresh to '
+                          'ask again.'
                     : 'No installed app matches "$query".',
                 icon: Icons.search_off_outlined,
                 action: query.isEmpty
@@ -108,9 +113,7 @@ class AppsScreen extends ConsumerWidget {
             return _AppList(
               items: items,
               query: query,
-              restricted: restricted,
               showIcons: launcher.showIcons,
-              onReload: actions.refreshApps,
             );
           },
         ),
@@ -128,25 +131,36 @@ class _AppList extends ConsumerWidget {
   const _AppList({
     required this.items,
     required this.query,
-    required this.restricted,
     required this.showIcons,
-    required this.onReload,
   });
 
   final List<InstalledApp> items;
   final String query;
-  final bool restricted;
   final bool showIcons;
-  final VoidCallback onReload;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final List<InstalledApp> favorites = ref.watch(favoriteAppsProvider);
     final List<InstalledApp> recents = ref.watch(recentAppsProvider);
+    final bool showPinnedStrip = query.isEmpty && favorites.isNotEmpty;
+    final Set<String> pinnedPackages = <String>{
+      for (final InstalledApp app in favorites) app.packageName,
+    };
+
+    // The Pinned strip is a shortcut, not a second copy of the same rows. When
+    // it is visible, the All apps list below starts with the unpinned remainder
+    // of the one canonical order. Search still covers every visible app,
+    // including pinned ones.
+    final List<InstalledApp> rows = showPinnedStrip
+        ? items
+              .where(
+                (InstalledApp app) => !pinnedPackages.contains(app.packageName),
+              )
+              .toList(growable: false)
+        : items;
 
     final List<Widget> header = <Widget>[
-      if (restricted) _RestrictedBanner(onReload: onReload),
-      if (query.isEmpty && favorites.isNotEmpty)
+      if (showPinnedStrip)
         _AppStrip(
           label: 'Pinned',
           apps: favorites,
@@ -164,7 +178,7 @@ class _AppList extends ConsumerWidget {
             onPressed: ref.read(launcherActionsProvider).clearRecents,
           ),
         ),
-      if (query.isEmpty)
+      if (query.isEmpty && rows.isNotEmpty)
         const Padding(
           padding: EdgeInsets.fromLTRB(
             PaperSpace.gutter,
@@ -178,15 +192,15 @@ class _AppList extends ConsumerWidget {
 
     return ListView.builder(
       padding: const EdgeInsets.only(bottom: PaperSpace.xxl),
-      itemCount: header.length + items.length,
+      itemCount: header.length + rows.length,
       itemBuilder: (BuildContext context, int index) {
         if (index < header.length) return header[index];
         final int appIndex = index - header.length;
-        final InstalledApp app = items[appIndex];
+        final InstalledApp app = rows[appIndex];
         return _AppRow(
           app: app,
           showIcons: showIcons,
-          showRule: appIndex != items.length - 1,
+          showRule: appIndex != rows.length - 1,
         );
       },
     );
@@ -299,72 +313,6 @@ class _StripTile extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
               ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Shown when Android returned a list that is almost certainly incomplete.
-///
-/// This is the Android 11+ package-visibility failure mode, and the user can
-/// only fix it by knowing about it.
-class _RestrictedNotice extends StatelessWidget {
-  const _RestrictedNotice({required this.onReload});
-
-  final VoidCallback onReload;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: <Widget>[
-        const PaperEmptyState(
-          title: 'The app list looks incomplete',
-          message:
-              'Android 11 and later hide apps from other apps unless they '
-              'are declared in the manifest. PaperOS declares what it needs, so '
-              'a short list usually means a restricted profile or a work '
-              'device.',
-          icon: Icons.info_outline,
-        ),
-        PaperButton(label: 'Reload', onPressed: onReload),
-      ],
-    );
-  }
-}
-
-class _RestrictedBanner extends StatelessWidget {
-  const _RestrictedBanner({required this.onReload});
-
-  final VoidCallback onReload;
-
-  @override
-  Widget build(BuildContext context) {
-    final PaperPalette palette = paperPalette(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        PaperSpace.gutter,
-        PaperSpace.md,
-        PaperSpace.gutter,
-        0,
-      ),
-      child: DecoratedBox(
-        decoration: BoxDecoration(border: Border.all(color: palette.rule)),
-        child: Padding(
-          padding: const EdgeInsets.all(PaperSpace.md),
-          child: Row(
-            children: <Widget>[
-              Icon(Icons.info_outline, size: 18, color: palette.inkMuted),
-              const SizedBox(width: PaperSpace.sm),
-              Expanded(
-                child: Text(
-                  'Android reported very few apps. The list may be restricted.',
-                  style: PaperTypography.of(context).bodyQuiet,
-                ),
-              ),
-              PaperTextAction(label: 'Reload', onPressed: onReload),
             ],
           ),
         ),

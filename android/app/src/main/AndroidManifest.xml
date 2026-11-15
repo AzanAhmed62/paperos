@@ -69,16 +69,18 @@
             </intent-filter>
 
             <!--
-              3. "Open with PaperOS" for PDF and plain text documents chosen
-                 from any other app, including the system Downloads app.
+              3. "Open with PaperOS" for PDF, EPUB and plain text documents
+                 chosen from any other app, including the system Downloads app.
             -->
             <intent-filter android:label="@string/open_with_paperos">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="content" android:mimeType="application/pdf" />
+                <data android:scheme="content" android:mimeType="application/epub+zip" />
                 <data android:scheme="content" android:mimeType="text/plain" />
                 <data android:scheme="file" android:mimeType="application/pdf" />
+                <data android:scheme="file" android:mimeType="application/epub+zip" />
                 <data android:scheme="file" android:mimeType="text/plain" />
             </intent-filter>
         </activity>
@@ -109,6 +111,10 @@
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:mimeType="application/pdf" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/epub+zip" />
         </intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />

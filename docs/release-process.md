@@ -1,6 +1,6 @@
 # Release process
 
-This document describes how PaperOS 1.3 is versioned, tested, signed, built and
+This document describes how PaperOS 1.4 is versioned, tested, signed, built and
 audited. It is also the place to record what was actually produced on a given
 machine. A build that fails is not a pass, and a debug APK is not release
 evidence.
@@ -10,14 +10,14 @@ evidence.
 `pubspec.yaml` is the source of truth for the Android version:
 
 ```yaml
-version: 1.3.0+4
+version: 1.4.0+5
 ```
 
 `lib/config/app_config.dart` must agree:
 
 ```dart
-static const String appVersion = '1.3.0';
-static const int appBuildNumber = 4;
+static const String appVersion = '1.4.0';
+static const int appBuildNumber = 5;
 ```
 
 The Android application ID remains `dev.paperos.app`. The debug build appends
@@ -134,11 +134,17 @@ flutter analyze
 flutter test
 ```
 
-The 1.3 automated baseline is **202 tests**: the original 134, the v1.2 backup,
-annotation-export, display, settings-envelope and text-scaling tests, and the
-v1.3 navigation, Back, shell-state, router-recovery, system-intent, launcher and
-drawer tests. All 202 passed in the final v1.3 run; the final report records the
-exact result. Do not copy an old count.
+The 1.4 automated baseline is **247 tests**: the original 134, the v1.2 backup,
+annotation-export, display, settings-envelope and text-scaling tests, the v1.3
+navigation, Back, shell-state, router-recovery, system-intent, launcher and
+drawer tests, and the v1.4 Home-title, settings-write, note-draft, app-ordering,
+palette-contrast, picker-policy and EPUB async/probe tests. All 247 passed in the
+final v1.4 run; the final report records the exact result. Do not copy an old
+count.
+
+GitHub Actions runs `dart format --set-exit-if-changed`, `flutter analyze`, the
+full test suite and a debug APK build on pushes to `main` and on pull requests.
+CI is a regression gate, not a substitute for the manual device checklist.
 
 Database tests use the real SQLite engine (`sqflite_common_ffi`), not a fake.
 Device-only checks remain in `docs/manual-testing.md` and are not converted to
@@ -268,8 +274,9 @@ The AAB lets Play split by ABI and screen density; it is not directly installed.
 1. Version and build number match in `pubspec.yaml` and `PaperConfig`.
 2. `flutter analyze` is clean.
 3. Full `flutter test` passes; exact count recorded.
-4. New v1.3 navigation, Back, system-intent, launcher and drawer tests pass,
-   alongside the v1.2 backup, export, display and settings tests.
+4. New v1.4 Home-title, note-draft, app-ordering, palette, picker and EPUB
+   async/probe tests pass, alongside the v1.3 navigation/launcher and v1.2
+   backup/export/display/settings tests.
 5. `flutter build apk --release` succeeds with user-owned credentials.
 6. `flutter build apk --release --split-per-abi` succeeds.
 7. `flutter build appbundle --release` succeeds.
@@ -284,8 +291,9 @@ The AAB lets Play split by ABI and screen density; it is not directly installed.
 
 Compiling and passing unit/widget tests is not Android validation. Before a
 public release, run all cases in `docs/manual-testing.md` on at least one physical
-Android device, including the v1.3 Back hierarchy, HOME-role selection, warm
-intents, duplicate tasks, process-death recovery, SAF save/restore, native PDF,
-EPUB selection, keep-awake, E-Ink appearance and the release manifest audit. No
-device was attached during this repository's 1.3 verification, so those rows
-remain "Not run".
+Android device, including the v1.4 Home title, draft notes, unified app ordering,
+Ink palette and EPUB import/open path, plus the v1.3 Back hierarchy, HOME-role
+selection, warm intents, duplicate tasks, process-death recovery, SAF
+save/restore, native PDF, EPUB selection, keep-awake and E-Ink appearance. No
+device was attached for the v1.4 verification, so those rows remain "Not run";
+the partial v1.3 OnePlus 6T run is historical evidence only.

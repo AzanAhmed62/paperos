@@ -32,11 +32,13 @@ enum DocumentFormat {
   /// fraction of the document rather than a page number.
   final bool paged;
 
-  /// Every extension PaperOS is willing to look at in a file picker.
-  static List<String> get importableExtensions => <String>[
-    for (final DocumentFormat format in DocumentFormat.values)
-      ...format.extensions,
-  ];
+  /// Every extension offered by the system document picker.
+  ///
+  /// This is deliberately the readable set, not every format PaperOS can
+  /// recognise. Offering DOCX or CBZ in the picker and then rejecting the file
+  /// is a false promise; a browsed or externally opened unsupported file is
+  /// still reported honestly instead of being silently ignored.
+  static List<String> get importableExtensions => readableExtensions;
 
   /// Extensions the current build can actually open.
   static List<String> get readableExtensions => <String>[

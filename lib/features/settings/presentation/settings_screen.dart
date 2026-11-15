@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
@@ -161,6 +164,8 @@ class SettingsScreen extends ConsumerWidget {
           _Section(
             title: 'Paper Home',
             children: <Widget>[
+              const _HomeTitleEditor(),
+              const PaperRule(inset: PaperSpace.gutter),
               PaperSettingRow(
                 label: 'Clock',
                 subtitle: 'A live 24-hour clock at the top of Paper Home.',
@@ -219,9 +224,136 @@ class SettingsScreen extends ConsumerWidget {
   }
 }
 
+/// Editable Paper Home heading.
+///
+/// The text controller is created once. Every keystroke updates the in-memory
+/// settings immediately, so Paper Home and the preview below the field show the
+/// new title at once; the controller coalesces the disk write. Leaving the
+/// field flushes any pending value, and resetting restores `PaperOS`.
+class _HomeTitleEditor extends ConsumerStatefulWidget {
+  const _HomeTitleEditor();
+
+  @override
+  ConsumerState<_HomeTitleEditor> createState() => _HomeTitleEditorState();
+}
+
+class _HomeTitleEditorState extends ConsumerState<_HomeTitleEditor> {
+  late final TextEditingController _text;
+  late final FocusNode _focus;
+  late final SettingsController _settings;
+
+  @override
+  void initState() {
+    super.initState();
+    _settings = ref.read(settingsProvider.notifier);
+    _text = TextEditingController(
+      text: ref.read(settingsProvider).home.displayName,
+    );
+    _focus = FocusNode()..addListener(_onFocusChanged);
+  }
+
+  @override
+  void dispose() {
+    _focus
+      ..removeListener(_onFocusChanged)
+      ..dispose();
+    // The notifier was captured in initState, so flushing here does not read
+    // the provider during disposal.
+    unawaited(_settings.flushHomeDisplayName());
+    _text.dispose();
+    super.dispose();
+  }
+
+  void _onFocusChanged() {
+    if (_focus.hasFocus) return;
+    _settings.flushHomeDisplayName();
+    final String stored = ref.read(settingsProvider).home.displayName;
+    if (_text.text != stored) _text.text = stored;
+  }
+
+  Future<void> _reset() async {
+    await _settings.resetHomeDisplayName();
+    if (!mounted) return;
+    _text.text = HomeSettings.defaultDisplayName;
+    _focus.unfocus();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final PaperTypography type = PaperTypography.of(context);
+    final String displayName = ref.watch(
+      settingsProvider.select(
+        (AppSettings settings) => settings.home.displayName,
+      ),
+    );
+
+    // Keep the field in sync with a backup restore or a reset performed
+    // elsewhere, but never fight the user while they are typing.
+    ref.listen<String>(
+      settingsProvider.select(
+        (AppSettings settings) => settings.home.displayName,
+      ),
+      (String? previous, String next) {
+        if (_focus.hasFocus || _text.text == next) return;
+        _text.text = next;
+      },
+    );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        PaperSpace.gutter,
+        PaperSpace.md,
+        PaperSpace.gutter,
+        PaperSpace.sm,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(child: Text('Home title', style: type.body)),
+              TextButton(
+                onPressed: displayName == HomeSettings.defaultDisplayName
+                    ? null
+                    : _reset,
+                child: const Text('Reset'),
+              ),
+            ],
+          ),
+          TextField(
+            controller: _text,
+            focusNode: _focus,
+            style: type.input,
+            textCapitalization: TextCapitalization.words,
+            textInputAction: TextInputAction.done,
+            maxLength: HomeSettings.maxDisplayNameLength,
+            maxLengthEnforcement: MaxLengthEnforcement.enforced,
+            onChanged: _settings.setHomeDisplayName,
+            onSubmitted: (_) {
+              _settings.flushHomeDisplayName();
+              _focus.unfocus();
+            },
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: HomeSettings.defaultDisplayName,
+              helperText:
+                  'Shown at the top of Paper Home. This does not rename the '
+                  'installed app.',
+              helperMaxLines: 2,
+              counterText: '',
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: PaperSpace.sm),
+          Text('Preview: $displayName', style: type.caption),
+        ],
+      ),
+    );
+  }
+}
+
 class _DisplaySection extends ConsumerWidget {
   const _DisplaySection();
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final PaperTypography type = PaperTypography.of(context);

@@ -145,9 +145,10 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
   }
 
   Future<void> _create() async {
-    final Note created = await ref.read(noteActionsProvider).create();
-    if (!mounted) return;
-    await context.push(Routes.noteEditorPath(created.id));
+    // Draft-first: the editor creates no database row until the user writes
+    // something meaningful. Tapping plus and immediately going back leaves the
+    // notes table untouched.
+    await context.push(Routes.newNote);
   }
 
   Future<void> _confirmDelete(Note note) async {

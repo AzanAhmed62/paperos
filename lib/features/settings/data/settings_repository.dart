@@ -19,8 +19,9 @@ class SettingsRepository {
   static const String settingsKey = 'paperos.settings.v1';
 
   /// Bumped when the stored envelope changes. Version 2 added the display
-  /// profile; version 1 documents remain readable.
-  static const int documentVersion = 2;
+  /// profile; version 3 added the custom Paper Home title. Version 1 and 2
+  /// documents remain readable, and a missing title resolves to `PaperOS`.
+  static const int documentVersion = 3;
 
   AppSettings load() {
     final String? raw = _preferences.getString(settingsKey);

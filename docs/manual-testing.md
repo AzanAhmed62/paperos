@@ -28,7 +28,7 @@ The debug manifest contains `INTERNET` for the Flutter development tool. The
 release manifest must be audited separately for a release build. Do not test
 network behaviour against the debug manifest and call it a release result.
 
-For v1.3 launcher cases, install the debug APK and, if possible, a signed release
+For launcher cases, install the debug APK and, if possible, a signed release
 or unsigned analysis build. For backup cases, prepare a destination folder
 through the Android document picker. Do not use a path on the development machine
 as a substitute.
@@ -54,10 +54,11 @@ does not support DRM.
 
 ## Checklist
 
-All rows below are written for the v1.3.0+4 build. Status values are explicit:
-**Not run** means the case was not exercised in the current run. A physical
-OnePlus 6T run on 11 November 2026 covered the rows marked **Passed** or
-**Partial**; everything else still needs a device pass.
+All rows 1–48 were written for the v1.3.0+4 build. Rows 49–58 cover the v1.4
+changes and are written for v1.4.0+5. Status values are explicit: **Not run**
+means the case was not exercised in the current run. A physical OnePlus 6T run on
+11 November 2026 covered the v1.3 rows marked **Passed** or **Partial**; no v1.4
+device run has been performed.
 
 | # | Area | Steps | Expected result | Result |
 | --- | --- | --- | --- | --- |
@@ -115,8 +116,23 @@ the v1.3 automated tests.
 | 44 | Launcher icon warm start | While PaperOS is running in a child surface, tap its launcher icon from the home screen/recents. | The hierarchy resets to Paper Home through `onNewIntent`; no duplicate PaperOS task is created. | Partial: repeated `am start` with `MAIN+LAUNCHER` reused one task and one `MainActivity`, and reset a child surface to Paper Home. A real launcher icon was not used. |
 | 45 | VIEW vs HOME | Open a PDF and a `.txt` from another app with PaperOS; then press Home. | VIEW imports/opens the document; pressing Home resets to Paper Home. A VIEW intent is not mistaken for a launcher reset. | Not run |
 | 46 | Duplicate tasks and process recovery | Launch PaperOS repeatedly from the icon, Recents and Home; remove the task from Recents while reading, then reopen. | One task is reused; the app returns to Paper Home after recreation; the library/progress remains intact after the flushed write. | Partial: repeated `am start` reused one task; force-stop and relaunch returned to Paper Home. Process death while reading was not tested. |
-| 47 | Drawer recents, pins and refresh | Launch several apps, reopen the drawer, pin/unpin, clear recents, toggle system apps and icons, refresh. | Recents are newest-first and bounded; pins persist and reorder; refresh re-reads the catalogue; hidden system apps stay hidden; a restricted result is explained. | Partial: 45 apps enumerated with real icons; launch, recents persistence across force-stop, pin/unpin and clear-recents worked. System-app/icon toggles, refresh and the restricted state were not exercised. |
+| 47 | Drawer recents, pins and refresh | Launch several apps, reopen the drawer, pin/unpin, clear recents, toggle system apps and icons, refresh. | Recents are newest-first and bounded; pins persist and reorder; refresh re-reads the catalogue; hidden system apps stay hidden; a short or empty catalogue is shown neutrally rather than claimed to be an Android restriction. | Partial: 45 apps enumerated with real icons; launch, recents persistence across force-stop, pin/unpin and clear-recents worked. System-app/icon toggles, refresh and the neutral empty state were not exercised. |
 | 48 | Predictive Back | Enable predictive Back in system developer options if needed; gesture Back on an overlay and on Home. | The overlay preview closes; Home does not animate an exit and remains visible. | Not run — Android 11 does not provide the predictive-Back preview |
+
+### v1.4 customization, notes and import cases
+
+| # | Area | Steps | Expected result | Result |
+| --- | --- | --- | --- | --- |
+| 49 | Home title persistence and reset | Settings → Home title: enter `Quiet Hours`, leave Settings, force-stop, reopen. Repeat with a non-Latin/emoji title, a 40-character title, and whitespace only. Then use Reset. | The heading changes immediately and survives restart; surrounding whitespace is trimmed; an empty title becomes `PaperOS`; the visible title stops at 32 code points without splitting a character; Reset restores `PaperOS`; a backup/restore preserves the title. | Not run |
+| 50 | Home entry-point de-duplication | Open Home. Hide Search in Home settings. Show and hide the clock. Check the four-action row and header. | Search and Apps each appear once, in the four-action row; no header Search/Apps icons, no pinned-section Apps link and no separate app-drawer row; hiding Search leaves Apps as the only app entry; the layout adapts without an empty slot or overflow. | Not run |
+| 51 | Conditional HOME-role notice | On a device where PaperOS is not the default Home app, open Home. Then select PaperOS as Home and reopen Home. | The setup notice appears only while PaperOS is not the default, with one action; after role selection it disappears. | Not run |
+| 52 | Untouched and whitespace-only drafts | Notes → New note; immediately press Back. Repeat, typing only spaces and line breaks, then press Back. Check the note count. | No row is created in either case; the list count does not change; Back closes the editor without a save error. | Not run |
+| 53 | Title-only and body-only notes | Create a note with only a title, wait for the save indicator to settle, leave and reopen. Repeat with only a body. Then add the missing field and leave. | Each meaningful draft creates exactly one row; title-only and body-only are both valid; adding the second field updates the same row instead of creating a second one. | Not run |
+| 54 | Failed save and delete race | With storage unavailable or the app process interrupted during the first save, type text and press Back. Separately, delete a draft immediately after typing. | A failed save keeps the editor open, keeps the text on screen, shows `Not saved` and a save-failure message; the text is not discarded. Deleting a draft does not leave a row that reappears later. | Not run |
+| 55 | Unified app ordering and dedupe | Enable system apps; pin several apps in a deliberate order; open the drawer with and without search. | Pinned apps appear first in pin order, followed by one case-insensitive A–Z list that includes visible system apps; each package appears once; pinned apps are not repeated in All apps while the Pinned strip is visible; search covers pinned and unpinned apps; the empty state does not claim a restriction it cannot prove. | Not run |
+| 56 | Picker format policy | Import through the system picker; inspect the offered types. Open Files and tap a `.docx`, `.md` or `.cbz` file. | The picker offers only PDF, TXT and EPUB extensions. A recognised but unreadable file is reported as recognised-but-not-openable; an unknown file is reported as unreadable; neither is imported or falsely opened. | Not run |
+| 57 | EPUB import probe and reader parse | Import a large EPUB and watch the UI; note when metadata and cover appear. Open the book. Force-stop during parsing and reopen. | Import shows metadata/cover without a frozen UI and without extracting every chapter; opening the book parses on the reader path before the first page; a malformed or interrupted book shows a recoverable error; a failed import leaves no partial file or duplicate row. | Not run |
+| 58 | Ink reader and palette coherence | Switch to the Ink style; open an EPUB and a PDF. Inspect page, top/bottom chrome, metadata, contents/settings sheets, selection handles, highlight, underline and attached-note styling. | Ink is charcoal on off-white, not pure black/white; all reader surfaces share the same palette; highlights and note fills are visible without glowing; rules are hairlines; White and Warm remain intact; the PDF page bitmap keeps its original colours. | Not run |
 
 ## What to capture for a failure
 
@@ -150,10 +166,11 @@ Rows 1, 38 and parts of 25, 37, 39, 41, 42, 44, 46 and 47 record that run.
 Everything else remains **not run**, including role confirmation, the system Home
 button while the role is held, real-launcher warm intents, OEM duplicate tasks,
 predictive Back, process death while reading, SAF document-provider flows,
-`ACTION_VIEW`, backup transfer, native PDF rendering and E-Ink visuals. An
-unsigned release analysis APK was also built (`dev.paperos.app`, version
-1.3.0+4, SHA-256
+`ACTION_VIEW`, backup transfer, native PDF rendering and E-Ink visuals. **No
+v1.4 device run was performed**; rows 49–58 are therefore all **not run**.
+An unsigned release analysis APK was also built for v1.3 (`dev.paperos.app`,
+version 1.3.0+4, SHA-256
 `24bc261016c63b345b77058b595798c66bf4509994074df1bac51c0628fa9f41`); it is not
 installable or distributable, and production signing remains blocked by missing
-owner credentials. Automated coverage is recorded in the v1.3 engineering report
-and README; it is not a substitute for this checklist.
+owner credentials. Automated coverage is recorded in the v1.4 and v1.3
+engineering reports and README; it is not a substitute for this checklist.

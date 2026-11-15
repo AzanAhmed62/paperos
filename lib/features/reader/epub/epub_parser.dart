@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
@@ -32,6 +34,53 @@ class EpubParseResult {
   final String? coverExtension;
 }
 
+/// Package metadata read without extracting the book's chapter text.
+///
+/// Import only needs to know that the package document, manifest and spine are
+/// coherent, plus the metadata and cover shown in the library. Extracting every
+/// chapter is the expensive part of opening an EPUB and is deferred until the
+/// reader actually opens the book.
+class EpubProbeResult {
+  const EpubProbeResult({
+    required this.metadata,
+    required this.chapterCount,
+    this.coverBytes,
+    this.coverExtension,
+  });
+
+  final EpubMetadata metadata;
+
+  /// Number of spine items declared by the package document.
+  final int chapterCount;
+
+  final Uint8List? coverBytes;
+  final String? coverExtension;
+}
+
+/// Isolate-safe outcome of a background parse.
+///
+/// Exceptions are converted to a user-facing [failure] string inside the
+/// isolate. That keeps the isolate boundary to plain data and means a parser
+/// failure can never arrive as an unsendable platform object.
+class EpubParseOutcome {
+  const EpubParseOutcome.success(EpubParseResult this.result) : failure = null;
+
+  const EpubParseOutcome.failure(this.failure) : result = null;
+
+  final EpubParseResult? result;
+  final String? failure;
+}
+
+/// Isolate-safe outcome of a background metadata probe.
+class EpubProbeOutcome {
+  const EpubProbeOutcome.success(EpubProbeResult this.result) : failure = null;
+
+  const EpubProbeOutcome.failure(this.failure) : result = null;
+
+  final EpubProbeResult? result;
+  final String? failure;
+}
+
 /// A small, deliberately bounded EPUB 2/3 parser.
 ///
 /// PaperOS does not render EPUB HTML or execute scripts. It reads the package
@@ -46,7 +95,109 @@ class EpubParseResult {
 class EpubParser {
   const EpubParser();
 
-  EpubParseResult parseFile(String path) {
+  /// One shared queue for every background parse.
+  ///
+  /// A reader open and a library import must not decode two large archives at
+  /// the same time: each archive is allowed to expand to 256 MB, so two in
+  /// parallel is an avoidable way to run a phone out of memory. Serialising
+  /// here bounds concurrency without adding a dependency or a thread pool.
+  static Future<void> _backgroundQueue = Future<void>.value();
+
+  static Future<T> _serialized<T>(Future<T> Function() task) {
+    final Completer<T> completer = Completer<T>();
+    _backgroundQueue = _backgroundQueue.then((_) async {
+      try {
+        completer.complete(await task());
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
+
+  EpubParseResult parseFile(String path) => parseBytes(_readFileBytes(path));
+
+  EpubParseResult parseBytes(List<int> bytes) {
+    final Archive archive = _openArchive(bytes);
+    try {
+      return _parseArchive(archive);
+    } finally {
+      archive.clearSync();
+    }
+  }
+
+  /// Reads only the package document, metadata and cover.
+  ///
+  /// This validates the same archive limits as [parseFile] and requires a
+  /// non-empty manifest and spine, but it does not decompress or extract a
+  /// single chapter. Import can therefore show honest metadata immediately
+  /// while the full parse happens only when the reader opens the document.
+  EpubProbeResult probeFile(String path) => probeBytes(_readFileBytes(path));
+
+  EpubProbeResult probeBytes(List<int> bytes) {
+    final Archive archive = _openArchive(bytes);
+    try {
+      return _probeArchive(archive);
+    } finally {
+      archive.clearSync();
+    }
+  }
+
+  /// Parses an EPUB on a background isolate.
+  ///
+  /// Parsing a large book is CPU-bound and previously ran on the UI isolate,
+  /// which dropped frames while a document opened. The result is plain data,
+  /// so the isolate boundary is safe. If isolates are unavailable on the
+  /// current platform the parse falls back to the calling isolate rather than
+  /// failing the open.
+  Future<EpubParseResult> parseFileAsync(String path) async {
+    final EpubParseOutcome outcome = await _serialized(() async {
+      try {
+        return await Isolate.run(() => _parseFileTask(path));
+      } catch (_) {
+        return _parseFileTask(path);
+      }
+    });
+    final String? failure = outcome.failure;
+    if (failure != null) throw EpubParseException(failure);
+    return outcome.result!;
+  }
+
+  /// Probes EPUB metadata on a background isolate.
+  Future<EpubProbeResult> probeFileAsync(String path) async {
+    final EpubProbeOutcome outcome = await _serialized(() async {
+      try {
+        return await Isolate.run(() => _probeFileTask(path));
+      } catch (_) {
+        return _probeFileTask(path);
+      }
+    });
+    final String? failure = outcome.failure;
+    if (failure != null) throw EpubParseException(failure);
+    return outcome.result!;
+  }
+
+  static EpubParseOutcome _parseFileTask(String path) {
+    try {
+      return EpubParseOutcome.success(const EpubParser().parseFile(path));
+    } on EpubParseException catch (error) {
+      return EpubParseOutcome.failure(error.message);
+    } catch (_) {
+      return const EpubParseOutcome.failure('This EPUB could not be opened.');
+    }
+  }
+
+  static EpubProbeOutcome _probeFileTask(String path) {
+    try {
+      return EpubProbeOutcome.success(const EpubParser().probeFile(path));
+    } on EpubParseException catch (error) {
+      return EpubProbeOutcome.failure(error.message);
+    } catch (_) {
+      return const EpubProbeOutcome.failure('This EPUB could not be opened.');
+    }
+  }
+
+  static Uint8List _readFileBytes(String path) {
     final File file = File(path);
     if (!file.existsSync()) {
       throw const EpubParseException('The EPUB file is no longer on disk.');
@@ -61,64 +212,49 @@ class EpubParser {
         'PaperOS opens EPUB files up to 64 MB.',
       );
     }
-    final Uint8List bytes;
     try {
-      bytes = file.readAsBytesSync();
+      return file.readAsBytesSync();
     } on FileSystemException {
       throw const EpubParseException('PaperOS could not read this EPUB.');
     }
-    return parseBytes(bytes);
   }
 
-  EpubParseResult parseBytes(List<int> bytes) {
+  static Archive _openArchive(List<int> bytes) {
     final Uint8List data = bytes is Uint8List
         ? bytes
         : Uint8List.fromList(bytes);
     if (data.isEmpty) {
       throw const EpubParseException('This EPUB is empty.');
     }
-    final Archive archive;
     try {
-      archive = ZipDecoder().decodeBytes(data);
+      return ZipDecoder().decodeBytes(data);
     } catch (_) {
       throw const EpubParseException(
         'This file is not a readable EPUB archive.',
       );
     }
-    try {
-      return _parseArchive(archive);
-    } finally {
-      archive.clearSync();
-    }
+  }
+
+  EpubProbeResult _probeArchive(Archive archive) {
+    _validateArchive(archive);
+    _validateMimetype(archive);
+    final _Package package = _readPackage(archive);
+    final _Cover? cover = _readCover(archive, package.opf, package.manifest);
+    return EpubProbeResult(
+      metadata: _readMetadata(package.opf),
+      chapterCount: package.spine.length,
+      coverBytes: cover?.bytes,
+      coverExtension: cover?.extension,
+    );
   }
 
   EpubParseResult _parseArchive(Archive archive) {
     _validateArchive(archive);
     _validateMimetype(archive);
-
-    final String containerPath = _findContainerPath(archive);
-    final String opfPath = _findPackagePath(archive, containerPath);
-    final String opfText = _readUtf8(
-      archive,
-      opfPath,
-      maxBytes: 8 * 1024 * 1024,
-    );
-    final XmlDocument opf;
-    try {
-      opf = XmlDocument.parse(opfText);
-    } on XmlException {
-      throw const EpubParseException('The EPUB package document is malformed.');
-    }
-
-    final String opfDir = p.posix.dirname(opfPath);
-    final List<_ManifestItem> manifest = _readManifest(opf, opfDir);
-    if (manifest.isEmpty) {
-      throw const EpubParseException('The EPUB has no declared contents.');
-    }
-    final List<_SpineItem> spine = _readSpine(opf, manifest);
-    if (spine.isEmpty) {
-      throw const EpubParseException('The EPUB has no reading order.');
-    }
+    final _Package package = _readPackage(archive);
+    final XmlDocument opf = package.opf;
+    final List<_ManifestItem> manifest = package.manifest;
+    final List<_SpineItem> spine = package.spine;
 
     final EpubMetadata metadata = _readMetadata(opf);
     final _Cover? cover = _readCover(archive, opf, manifest);
@@ -249,6 +385,40 @@ class EpubParser {
       coverBytes: cover?.bytes,
       coverExtension: cover?.extension,
     );
+  }
+
+  // ------------------------------------------------------------- package
+
+  /// Reads and validates the parts every EPUB open needs.
+  ///
+  /// Shared by the full parse and the metadata probe so both apply exactly the
+  /// same package, manifest and spine checks. A probe cannot accept a book the
+  /// reader would reject for a structural reason.
+  _Package _readPackage(Archive archive) {
+    final String containerPath = _findContainerPath(archive);
+    final String opfPath = _findPackagePath(archive, containerPath);
+    final String opfText = _readUtf8(
+      archive,
+      opfPath,
+      maxBytes: 8 * 1024 * 1024,
+    );
+    final XmlDocument opf;
+    try {
+      opf = XmlDocument.parse(opfText);
+    } on XmlException {
+      throw const EpubParseException('The EPUB package document is malformed.');
+    }
+
+    final String opfDir = p.posix.dirname(opfPath);
+    final List<_ManifestItem> manifest = _readManifest(opf, opfDir);
+    if (manifest.isEmpty) {
+      throw const EpubParseException('The EPUB has no declared contents.');
+    }
+    final List<_SpineItem> spine = _readSpine(opf, manifest);
+    if (spine.isEmpty) {
+      throw const EpubParseException('The EPUB has no reading order.');
+    }
+    return _Package(opf: opf, manifest: manifest, spine: spine);
   }
 
   // ------------------------------------------------------------- validation
@@ -986,6 +1156,18 @@ class EpubParser {
         .replaceAll('&quot;', '"')
         .replaceAll('&#39;', "'");
   }
+}
+
+class _Package {
+  const _Package({
+    required this.opf,
+    required this.manifest,
+    required this.spine,
+  });
+
+  final XmlDocument opf;
+  final List<_ManifestItem> manifest;
+  final List<_SpineItem> spine;
 }
 
 class _ManifestItem {

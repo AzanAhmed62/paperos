@@ -16,9 +16,47 @@ manifest declares no storage permission and no `INTERNET` permission; the debug
 manifest adds `INTERNET` only because the Flutter development tool needs it for
 hot reload and debugging.
 
-Current version: **1.3.0+4** (`dev.paperos.app`, schema version 2).
+Current version: **1.4.0+5** (`dev.paperos.app`, schema version 2).
 
-## What is new in 1.3
+## What is new in 1.4
+
+- **A Home that belongs to the reader.** The heading is now a custom title,
+  stored in the versioned settings document with Unicode-preserving
+  normalisation, a 32-character cap, an empty-to-`PaperOS` fallback and a reset
+  action. Search and Apps appear once, in the four-action row; duplicate header
+  icons, the pinned-section Apps link and the launcher app-drawer row are gone.
+  The HOME-role setup notice appears only when PaperOS is not the default Home
+  app.
+- **Draft-first notes.** Opening a new note no longer writes a row. The first
+  meaningful title or body save inserts exactly one row; untouched and
+  whitespace-only drafts write nothing. Saves are serialised, Back flushes the
+  latest keystrokes, a failed save keeps the text and blocks leaving, and a
+  delete that races a pending insert removes the raced row instead of letting it
+  reappear. Home and Notes use the same `/notes/new` route.
+- **One app ordering.** Pinned apps come first in pin order, followed by one
+  case-insensitive A–Z list that includes visible system apps, with deterministic
+  label/package/activity tie-breaks and package deduplication. Pinned apps are
+  not repeated in the All apps rows while the Pinned strip is shown. An empty
+  catalogue is reported as an empty catalogue, not guessed to be an Android
+  restriction.
+- **A coherent Ink reader.** The Ink palette is now charcoal and off-white
+  rather than a pure black inversion, with dedicated highlight and annotation
+  note fills and hairline rules on the reader bars. White and Warm remain
+  unchanged in intent, the E-Ink policy is untouched, and the PDF bitmap is
+  never recoloured.
+- **Measured import and parsing work.** EPUB metadata is read with a
+  metadata-only probe at import; the full chapter parse happens on a background
+  isolate when the reader opens the book. Parses share one serialised queue so
+  two large books cannot expand at once. Import copies and hashes the source in
+  one pass to a `.part` file, renames only a complete copy, and cleans up a
+  duplicate after fingerprint detection. The picker offers only formats this
+  build can actually read.
+- **Release engineering.** 247 automated tests, a GitHub Actions CI workflow
+  for format/analyze/test plus a debug APK build, and this v1.4 engineering
+  report. No new dependencies, permissions, cloud services or navigation
+  frameworks were added.
+
+## What was new in 1.3
 
 - **Deterministic navigation hierarchy.** Paper Home is Level 0, the five
   destinations are Level 1, reader/editor/drawer/tasks/search and Files folders
@@ -64,13 +102,16 @@ Current version: **1.3.0+4** (`dev.paperos.app`, schema version 2).
 
 ### Home
 
-Paper Home shows, in order: a live clock, four quick actions (Search, Apps, New
-note, New task), the document you were last reading, the tasks due today (plus
-undated tasks), recent documents, pinned apps, and a launcher block. A task added
-on Home belongs to today. Paging the Tasks screen to another day does not change
-what Home calls "today". The clock can be shown without the long date, and the
-layout can be comfortable or compact without changing text size. With the E-Ink
-profile the clock updates once at each minute boundary instead of every second.
+Paper Home shows, in order: a custom heading (default `PaperOS`), a live clock,
+four quick actions (Search, Apps, New note, New task), the document you were last
+reading, the tasks due today (plus undated tasks), recent documents, pinned apps,
+and — only when PaperOS is not the default Home app — a contextual HOME-role
+setup notice. Search can be hidden; Apps remains the single app-drawer entry.
+A task added on Home belongs to today. Paging the Tasks screen to another day
+does not change what Home calls "today". The clock can be shown without the long
+date, and the layout can be comfortable or compact without changing text size.
+With the E-Ink profile the clock updates once at each minute boundary instead of
+every second.
 
 ### Library and reader
 
@@ -138,9 +179,13 @@ select that task's day before opening the checklist.
 
 ### Notes
 
-A note is a title and a plain body. Saves are debounced while typing, opening a
-note does not rewrite it, and leaving the editor flushes the final keystrokes
-before the route closes.
+A note is a title and a plain body. A new note is a draft until it has meaningful
+content: an untouched or whitespace-only draft never reaches SQLite. Title-only
+and body-only notes are valid. Saves are debounced while typing and serialised so
+an older write cannot overwrite a newer one; opening a note does not rewrite it,
+and leaving the editor flushes the final keystrokes before the route closes. If a
+save fails, the editor keeps the text and refuses to leave silently. Deleting a
+draft while its first insert is in flight removes the raced row.
 
 ### Search
 
@@ -151,22 +196,26 @@ and task titles. Each result opens the surface that owns it.
 
 Settings covers the monochrome paper style, interface text size, serif reading
 face, reader size and spacing, paged/scroll flow, page theme, keep-screen-on,
-display profile, Home sections/clock/date/density, launcher HOME-role status,
-app-drawer icons/system apps/recents/pinned apps, storage information,
+display profile, Home title/sections/clock/date/density, launcher HOME-role
+status, app-drawer icons/system apps/recents/pinned apps, storage information,
 backup/restore, remove-all, and the bundled font licences. Settings are stored as
-one versioned JSON document in `shared_preferences`; legacy documents without a
-version remain readable.
+one versioned JSON document in `shared_preferences`; the current envelope is
+version 3, and version 1 and 2 documents remain readable. A missing Home title
+resolves to `PaperOS`.
 
 ### Launcher surfaces
 
 The app drawer lists launchable apps through a platform channel, can show or hide
 system apps, shows pinned and recently launched strips, supports pin/unpin and
-launch, refreshes the catalogue on demand, and explains a restricted Android
-package-visibility result. Settings and Home both expose the Android Home-role
-request and the current role status. HOME/LAUNCHER intents reset PaperOS to Paper
-Home; `ACTION_VIEW` still opens the selected document. The core launcher
-surfaces were exercised on a physical OnePlus 6T running Android 11; the
-remaining gaps are listed under verification status.
+launch, refreshes the catalogue on demand, and reports an empty catalogue without
+guessing why. Visible apps use one canonical order: pinned first in pin order,
+then every remaining app in case-insensitive A–Z order, including system apps
+when they are enabled. Duplicate packages are collapsed deterministically.
+Settings and Home both expose the Android Home-role request and the current role
+status. HOME/LAUNCHER intents reset PaperOS to Paper Home; `ACTION_VIEW` still
+opens the selected document. The core launcher surfaces were exercised on a
+physical OnePlus 6T running Android 11; the remaining gaps are listed under
+verification status.
 
 ## Verification status
 
@@ -177,20 +226,23 @@ the shipped code, not that every visual detail was inspected on hardware.
 | --- | --- | --- |
 | Navigation shell, boot and Back | Verified in tests and on one device | Widget tests boot the real app, preserve branch state, return non-Home surfaces to Home, consume Back on Home, close overlays first, and step through Files folders. On a OnePlus 6T (Android 11), Library → Back returned Home and Back on Home was consumed without finishing the activity. |
 | Android launcher intents | Verified in tests and partially on device | HOME/LAUNCHER reset the hierarchy; VIEW drains the document path; cold, warm, pending and duplicate delivery are unit-tested. Warm HOME/LAUNCHER intents delivered with `am start` reset to Home on the OnePlus 6T. Delivery from a real launcher is still unverified. |
-| App drawer recents, favourites and restricted state | Verified in tests and partially on device | Widget tests cover pinned/recent strips, launch, pin/unpin, refresh, empty and restricted states, and the icon preference. On the OnePlus 6T the drawer enumerated 45 apps with real icons, launched an app, persisted recents across force-stop, and pin/unpin/clear worked. The restricted state is not device-verified. |
+| App drawer recents, favourites and ordering | Verified in tests and partially on device | Widget and unit tests cover pinned/recent strips, launch, pin/unpin, refresh, the icon preference, package deduplication, pinned-first order, unified case-insensitive A–Z order including system apps, deterministic ties, and the neutral empty state. On the OnePlus 6T the drawer enumerated 45 apps with real icons, launched an app, persisted recents across force-stop, and pin/unpin/clear worked. The new v1.4 ordering and empty state were not device-exercised. |
 | Tasks repository, day selection, Home independence | Verified | SQLite repository tests plus provider and widget tests. |
-| Note editor save/leave behaviour | Verified | Widget tests cover open-without-write, back-without-write, and flush-on-back. |
+| Home title and Home de-duplication | Verified | Unit tests cover trimming, empty fallback, Unicode, the 32-code-point cap, settings v3 decode and v1/v2 compatibility; controller tests cover debounce, flush, reset and recovery after a failed write; widget tests cover the custom heading, one Search/Apps entry, hidden Search, and the conditional HOME-role notice. |
+| Note draft-first lifecycle | Verified | Widget tests cover untouched and whitespace-only drafts writing no row, title-only and body-only insertion, one-row updates, rapid edits persisting the latest revision, a delete racing a pending insert leaving no orphan, and a failed first save keeping the text and blocking Back. |
 | Library, bookmark, and annotation persistence | Verified | Repository tests run against the real SQLite engine. |
 | Schema v1 to v2 migration | Verified | A populated v1 database is upgraded and its documents, progress, bookmarks, notes, and tasks are read back. |
-| EPUB 2/3 parsing and malformed-archive safety | Verified | Unit tests cover EPUB 2 NCX, EPUB 3 navigation, nested contents, metadata, unsafe paths, declared unbounded entries, non-EPUB input, empty spines, and image-only chapters. |
-| EPUB import, metadata, cover, duplicate recognition, stale-row relink | Verified | Repository tests exercise same-source re-import, fingerprint dedup, revived private copies, and preservation of user data. |
+| EPUB 2/3 parsing, async isolation and malformed-archive safety | Verified | Unit tests cover EPUB 2 NCX, EPUB 3 navigation, nested contents, metadata, unsafe paths, declared unbounded entries, non-EPUB input, empty spines, image-only chapters, the metadata-only probe, the serialised background queue, queue recovery after a malformed book, and a missing file. |
+| EPUB import, metadata, cover, duplicate recognition, stale-row relink | Verified | Repository tests exercise the metadata probe, same-source re-import, fingerprint dedup, revived private copies, preservation of user data, a malformed EPUB kept as unreadable, empty-file refusal, and no `.part` residue after a successful copy. |
 | EPUB pagination, locator restore, search, annotation ranges | Verified | Backend and reader-session tests cover typography changes, scroll/paged switching, orphan recovery, and malformed-book errors. |
 | EPUB reader chrome and library filters | Verified | Widget tests open the real reader, read the page, exercise every filter, search by author, and sort through the menu. |
 | Text pagination | Verified | Unit tests cover empty, short, long, lazy, and fraction cases. |
 | Backup archive validation and full restore | Verified in tests | Real SQLite round trip over every table, empty library, cancellation, damaged payload, missing attachment, future format, and path traversal. SAF transfer is not device-tested. |
 | Annotation Markdown/JSON export | Verified | Structure, order, counts, safe filenames, graphics-free empty book, and orphan disclosure are unit-tested. |
-| Standard/E-Ink display policy | Verified in tests | Profile parsing, conservative capabilities, policy values, clock cadence, render-time typography, settings v2 persistence, legacy decode and future rejection. Visual quality is not device-tested. |
-| Settings v2 envelope and legacy settings | Verified | Version 1 documents remain readable; unsupported versions fail strict import. |
+| Standard/E-Ink display policy | Verified in tests | Profile parsing, conservative capabilities, policy values, clock cadence, render-time typography, settings-envelope persistence, legacy decode and future rejection. Visual quality is not device-tested. |
+| Ink palette and reader contrast | Verified in tests | Palette unit tests require at least 7:1 body text, 4.5:1 secondary and highlight/note text, 3:1 faint text, and 7:1 inverse text, plus distinct highlight/note tokens and a charcoal/off-white Ink base rather than pure black and white. Real panel appearance is not device-tested. |
+| Settings v3 envelope and legacy settings | Verified | Version 1 and 2 documents remain readable; a missing Home title falls back to `PaperOS`; unsupported versions fail strict import. |
+| Picker format policy | Verified | Unit tests require the picker to offer exactly the readable extensions and to keep recognised-but-unreadable formats out of the picker while still reporting them honestly in Files and import errors. |
 | PDF native dispose and page bounds | Partially verified | Backend tests cover lifecycle and navigation; actual rendering needs Android. |
 | SAF file/folder browsing | Implemented but runtime-unverified | Kotlin channel and Dart service exist; unit tests cover channel mapping. |
 | Backup save/restore through Android SAF | Implemented but runtime-unverified | Native streaming channel compiles in review; needs a real document provider. |
@@ -199,9 +251,9 @@ the shipped code, not that every visual detail was inspected on hardware.
 | Import through the system picker | Implemented but runtime-unverified | Needs a real Android picker and provider. |
 | Home-role request, app discovery, app launch | Partially verified on device | The role dialog appears on Android 11 after the `startActivityForResult` fix, but the role was cancelled. The drawer enumerated and launched real apps. Confirming the role and replacing the launcher remain device checks. |
 | Keep-screen-on | Implemented but runtime-unverified | Platform channel compiles; behaviour needs Android. |
-| Release permissions | Verified on an unsigned analysis artifact | The merged v1.3 release manifest and APK contain no `INTERNET` and no storage permission. The only permission is the app-defined signature permission `dev.paperos.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`. The one exported receiver is AndroidX's profile installer, guarded by `android.permission.DUMP`. See `docs/v1.3-engineering-report.md`. |
-| Production signing | Blocked | No owner keystore credentials were supplied. Release tasks fail closed rather than debug-sign; only an unsigned analysis APK was produced. |
-| Physical launcher validation | Partially run | Core launcher, app-drawer, warm `am start` and Back paths passed on a OnePlus 6T (Android 11). Role confirmation, the system Home button while the role is held, real-launcher warm intents, OEM duplicate tasks, process death while reading, predictive Back, SAF folders, `ACTION_VIEW` and the native v1.2 paths remain device checks. |
+| Release permissions | Verified on an unsigned analysis artifact | The merged v1.4 release manifest and APK contain no `INTERNET` and no storage permission. The only permission is the app-defined signature permission `dev.paperos.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`. The exported VIEW filter advertises PDF, EPUB and plain text. The one exported receiver is AndroidX's profile installer, guarded by `android.permission.DUMP`. See `docs/v1.4-engineering-report.md`. |
+| Production signing | Blocked | No owner keystore credentials were supplied. Release tasks fail closed rather than debug-sign; only unsigned analysis APKs were produced. |
+| Physical launcher validation | Partially run (v1.3 only) | Core launcher, app-drawer, warm `am start` and Back paths passed on a OnePlus 6T (Android 11). No v1.4 device run was performed. Role confirmation, the system Home button while the role is held, real-launcher warm intents, OEM duplicate tasks, process death while reading, predictive Back, SAF folders, `ACTION_VIEW` and the native v1.2 paths remain device checks. |
 | Cloud sync, accounts, analytics | Not implemented | Explicitly out of scope. |
 | PDF highlights and annotations | Not implemented | The native PDF path renders bitmaps and does not expose selectable text. |
 | Backup encryption | Not implemented | Backups are plain ZIPs; see `security-and-privacy.md`. |
@@ -236,10 +288,11 @@ flutter build apk --debug
 ```
 
 The debug APK is written to
-`build/app/outputs/flutter-apk/app-debug.apk`. Exact v1.3 artifact sizes, hashes,
+`build/app/outputs/flutter-apk/app-debug.apk`. Exact v1.4 artifact sizes, hashes,
 manifest audit results and test totals are recorded in the
-[`docs/v1.3-engineering-report.md`](docs/v1.3-engineering-report.md). The v1.2
-measurements remain in [`docs/v1.2-engineering-report.md`](docs/v1.2-engineering-report.md)
+[`docs/v1.4-engineering-report.md`](docs/v1.4-engineering-report.md). The v1.3
+measurements remain in [`docs/v1.3-engineering-report.md`](docs/v1.3-engineering-report.md);
+the v1.2 measurements remain in [`docs/v1.2-engineering-report.md`](docs/v1.2-engineering-report.md)
 and [`docs/performance-report.md`](docs/performance-report.md).
 
 Release builds require owner-supplied credentials and fail closed otherwise:
@@ -256,41 +309,55 @@ build is possible only with `-Ppaperos.allowUnsignedRelease=true` and is not
 installable or distributable. The full procedure, manifest audit, and signature
 verification commands are in [`docs/release-process.md`](docs/release-process.md).
 
-The automated suite contains **202 tests**: the original 134, the v1.2 backup,
-annotation-export, display-profile, settings-envelope and text-scaling tests, and
-the v1.3 navigation, Back, shell-state, router-recovery, system-intent, launcher
-and drawer tests. All 202 pass with `flutter test`:
+The automated suite contains **247 tests**: the original 134, the v1.2 backup,
+annotation-export, display-profile, settings-envelope and text-scaling tests, the
+v1.3 navigation, Back, shell-state, router-recovery, system-intent, launcher and
+drawer tests, and the v1.4 Home-title, settings-write, note-draft, app-ordering,
+palette-contrast, picker-policy and EPUB async/probe tests. All 247 pass with
+`flutter test`:
 
-- `test/unit/` — EPUB parsing and archive safety, EPUB pagination/locators, text
-  pagination, PDF backend lifetime/navigation, file-browser channel mapping,
-  annotation export, display policy, Back policy, router recovery, system
-  intents, launcher service and launcher providers.
-- `test/data/` — repositories, filters/sorts, import deduplication, annotations,
-  bookmark locators, settings, the real v1-to-v2 SQLite migration, and full
-  backup/restore against real SQLite.
+- `test/unit/` — EPUB parsing, async isolation, metadata probing and archive
+  safety; EPUB pagination/locators; text pagination; PDF backend
+  lifetime/navigation; file-browser channel mapping; annotation export; display
+  policy; Back policy; router recovery; system intents; launcher service and
+  providers; app-catalog ordering; settings-controller writes; palette contrast;
+  and document-format policy.
+- `test/data/` — repositories, filters/sorts, import deduplication and atomic
+  copy, annotations, bookmark locators, settings v3 with v1/v2 compatibility, the
+  real v1-to-v2 SQLite migration, and full backup/restore against real SQLite.
 - `test/reader/` — EPUB opening, paged/scroll switching, annotation and bookmark
   persistence, and malformed-book recovery.
 - `test/widget/` — the real app shell, Back hierarchy, app drawer, Home launcher
-  surface, reader chrome, EPUB library filters and sorting, Tasks, Files, the note
-  editor, the search field, and task-result day selection in search.
+  surface and custom title, reader chrome, EPUB library filters and sorting,
+  Tasks, Files, the draft-first note editor, the search field, and task-result day
+  selection in search.
+
+GitHub Actions runs formatting, analysis, the full test suite and a debug APK
+build on pushes to `main` and on pull requests; see
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 A physical OnePlus 6T (`ONEPLUS A6010`, Android 11 / API 30) was used for a
 partial v1.3 runtime run: install and launch, Library/Back, app-drawer
 enumeration and launch, recents persistence, pin/unpin, warm HOME/LAUNCHER
 `am start` resets, repeated-launch task reuse, force-stop recovery, and the
-HOME-role dialog were exercised. The role was cancelled. HOME-role replacement,
-the system Home button while the role is held, warm intents from a real launcher,
-OEM duplicate tasks, predictive Back, process death while reading, SAF picker
-interaction, backup save/restore through a document provider, native PDF
-rendering, EPUB text-selection handles and E-Ink appearance remain
-runtime-unverified. Production signing was not exercised because no owner
-credentials were supplied. See the manual checklist below.
+HOME-role dialog were exercised. The role was cancelled. **No new device run was
+performed for v1.4**, so those results remain the most recent hardware evidence.
+HOME-role replacement, the system Home button while the role is held, warm
+intents from a real launcher, OEM duplicate tasks, predictive Back, process death
+while reading, SAF picker interaction, backup save/restore through a document
+provider, native PDF rendering, EPUB text-selection handles, E-Ink appearance,
+the v1.4 Home title, draft-note lifecycle, unified app ordering and Ink palette
+remain runtime-unverified. Production signing was not exercised because no
+owner credentials were supplied. See the manual checklist below.
 
 Design notes:
 
 - [`docs/navigation-architecture.md`](docs/navigation-architecture.md) — the
   level hierarchy, route map, exact Back contract, router lifetime and Android
   intent classification.
+- [`docs/v1.4-engineering-report.md`](docs/v1.4-engineering-report.md) — the
+  full v1.4 engineering report, including verification status, artifact hashes,
+  release gates and blocked items.
 - [`docs/v1.3-engineering-report.md`](docs/v1.3-engineering-report.md) — the
   full v1.3 engineering report, including verification status, build hashes,
   release gates and blocked items.
@@ -322,7 +389,7 @@ Design notes:
 
 ## Manual phone checklist
 
-The authoritative 48-case checklist with explicit statuses is in
+The authoritative 58-case checklist with explicit statuses is in
 [`docs/manual-testing.md`](docs/manual-testing.md). In short:
 
 1. Install and launch; confirm the five destinations and release manifest.
@@ -347,6 +414,20 @@ The authoritative 48-case checklist with explicit statuses is in
     Home, and that a VIEW intent still opens its document.
 14. Check duplicate tasks, process death/recreation, drawer recents/pins/refresh
     and predictive Back on the physical device.
+15. Change the Home title, restart, reset it, and confirm it survives a backup
+    and restore; check the 32-character limit and a non-Latin title.
+16. Open a new note and leave it untouched; repeat with spaces only; then save a
+    title-only note and a body-only note. Confirm only the meaningful drafts
+    become rows.
+17. Pin several apps and enable system apps; confirm pinned-first order followed
+    by one A–Z list, with no duplicate rows.
+18. Confirm the picker offers only PDF, TXT and EPUB, and that a recognised but
+    unreadable file states so instead of opening or being offered.
+19. Import a large EPUB and confirm metadata appears without a frozen UI; open it
+    and confirm the reader parses before showing the first page.
+20. Inspect the Ink reader page, chrome, metadata, sheets, selection, highlight,
+    underline and note styling; confirm a PDF page keeps its original bitmap
+    colours.
 
 ## Architecture
 
@@ -413,8 +494,16 @@ visibility without adding a second visual language.
 - Launcher behaviour depends on Android and OEM task handling. `singleTask` is
   the documented contract, but duplicate-task and `onNewIntent` behaviour still
   needs a physical-device check.
-- The app-drawer restricted flag is a heuristic (`resolved.size <= 1`). It can
-  flag a genuinely tiny app list as restricted; it never hides the list.
+- The app-drawer empty state no longer guesses that a short or empty list is an
+  Android package-visibility restriction. It asks the user to refresh and points
+  at visibility settings only as a possibility. A true restriction still needs a
+  stronger platform signal than list size.
+- Home and Notes share the draft editor. If the process is killed before the
+  first meaningful autosave, an untouched draft is intentionally lost; there is
+  no hidden row to recover.
+- EPUB parsing runs on a background isolate when the platform supports it and
+  falls back to the calling isolate otherwise. The serialised queue bounds
+  concurrency, but it does not make a 64 MB archive parse instantly.
 - Back on Home is consumed by design. PaperOS does not offer a "Back exits the
   launcher" mode.
 - Backups are unencrypted and unsigned. They contain books, notes and reading

@@ -159,6 +159,7 @@ void main() {
     const AppSettings original = AppSettings.defaults();
     final AppSettings custom = original.copyWith(
       display: const DisplaySettings(profile: DisplayProfile.eink),
+      home: const HomeSettings(displayName: 'Night Shelf'),
       askOnExit: false,
     );
     await settingsRepository.save(custom);
@@ -225,6 +226,7 @@ void main() {
 
     final AppSettings restoredSettings = settingsRepository.load();
     expect(restoredSettings.display.profile, DisplayProfile.eink);
+    expect(restoredSettings.home.displayName, 'Night Shelf');
     expect(restoredSettings.askOnExit, isFalse);
   });
 

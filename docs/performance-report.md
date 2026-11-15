@@ -246,3 +246,49 @@ installed build-tools.
   smaller.
 - A signed release must be rebuilt and re-audited after owner credentials are
   supplied. Do not reuse these hashes for a distributed artifact.
+
+## v1.4 build measurements
+
+The v1.2 table above is retained as historical evidence. The measurements below
+are the final PaperOS 1.4.0+5 artifacts built on the same host on 14 November
+2026. They are artifact and build-time measurements only; no runtime benchmark
+was run.
+
+### Final artifacts
+
+| Artifact | Bytes | MiB | SHA-256 |
+| --- | ---: | ---: | --- |
+| `build/app/outputs/flutter-apk/app-debug.apk` | 171,165,905 | 163.24 | `c6d9f3c432a04e97bc47254d447c6b5d4fca84eb465e58bfe2b4a168fe68425e` |
+| `build/app/outputs/flutter-apk/app-release.apk` (unsigned) | 58,651,176 | 55.93 | `fe3cc182a8a9fc446ce677779d82d1a4d8b4e139e7c4c5a4abd81b3a3cc298b3` |
+| `build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk` (unsigned) | 18,844,954 | 17.97 | `820be579c6cb8e35ca775fc6e8289a840fd212341e5c08c45aa20d34250a595f` |
+| `build/app/outputs/flutter-apk/app-arm64-v8a-release.apk` (unsigned) | 21,261,762 | 20.28 | `529cc42a73b5340c70b69a4d11e04cc79c997fa51735808e1a067e3e1965d07c` |
+| `build/app/outputs/flutter-apk/app-x86_64-release.apk` (unsigned) | 22,753,222 | 21.70 | `c67f84cbad88eddba292d21a55d26539167d18bd954099edd8a7fc3d72308a40` |
+| `build/app/outputs/bundle/release/app-release.aab` | 57,256,904 | 54.60 | `17fbc69caceb1ca41f5aadcab000e6952cbec63957831c2f659f2a71e3c1850a` |
+
+The release APKs are unsigned analysis artifacts: `apksigner verify` reports
+`DOES NOT VERIFY — Missing META-INF/MANIFEST.MF`. The debug APK is debug-signed.
+None of these hashes should be reused for a signed distribution.
+
+### Build and test cost
+
+| Command | Wall time | Notes |
+| --- | ---: | --- |
+| `flutter test` | 193 s (3:13) final run; 116 s (1:56) earlier run | 247 tests passed |
+| `flutter build apk --debug --no-pub` | 16.81 s | Final incremental rebuild, warm Gradle cache |
+| `flutter build apk --release --no-pub -Ppaperos.allowUnsignedRelease=true` | 98.15 s | Final incremental rebuild, warm Gradle cache |
+| `flutter build apk --release --split-per-abi --no-pub -Ppaperos.allowUnsignedRelease=true` | 70.63 s | Final incremental rebuild, warm Gradle cache |
+| `flutter build appbundle --release --no-pub -Ppaperos.allowUnsignedRelease=true` | 79.03 s | Final incremental rebuild, warm Gradle cache |
+
+The first cold run on this host, before the final manifest and native-catalogue
+fixes, took 369.40 s (debug), 389.83 s (universal release), 175.18 s (split-ABI)
+and 301.00 s (AAB). Build times remain upper bounds on a shared machine, not a
+Flutter or Gradle benchmark.
+
+### What was not measured
+
+No Android device or emulator was attached for v1.4. This section therefore makes
+no claim about startup time, frame time, jank, memory, PDF rasterisation, EPUB
+probe or parse latency, import throughput, SAF transfer speed or E-Ink refresh.
+The code changes are performance-oriented by construction — metadata-only import
+probing, background parsing with a bounded queue, lazy pagination and one-pass
+copy+hash — but they are not measured speedups.

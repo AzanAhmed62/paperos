@@ -280,12 +280,36 @@ class LauncherSettings {
 @immutable
 class HomeSettings {
   const HomeSettings({
+    this.displayName = defaultDisplayName,
     this.hiddenSections = const <HomeSection>{},
     this.showClock = true,
     this.showDate = true,
     this.density = HomeDensity.comfortable,
   });
 
+  /// The heading at the top of Paper Home.
+  ///
+  /// This is a display preference only: it never changes the Android label,
+  /// package id, intent identifiers or the HOME role. It is stored in the
+  /// existing settings document, not in a new database table.
+  static const String defaultDisplayName = 'PaperOS';
+
+  /// A title longer than this is truncated rather than allowed to break the
+  /// Home header on a narrow phone.
+  static const int maxDisplayNameLength = 32;
+
+  /// Trims surrounding whitespace, falls back to [defaultDisplayName] for an
+  /// empty value, and truncates by Unicode code point so a surrogate pair is
+  /// never split. User-entered Unicode is otherwise preserved exactly.
+  static String normaliseDisplayName(String? value) {
+    final String trimmed = (value ?? '').trim();
+    if (trimmed.isEmpty) return defaultDisplayName;
+    final List<int> runes = trimmed.runes.toList(growable: false);
+    if (runes.length <= maxDisplayNameLength) return trimmed;
+    return String.fromCharCodes(runes.take(maxDisplayNameLength));
+  }
+
+  final String displayName;
   final Set<HomeSection> hiddenSections;
   final bool showClock;
 
@@ -299,12 +323,14 @@ class HomeSettings {
   bool shows(HomeSection section) => !hiddenSections.contains(section);
 
   HomeSettings copyWith({
+    String? displayName,
     Set<HomeSection>? hiddenSections,
     bool? showClock,
     bool? showDate,
     HomeDensity? density,
   }) {
     return HomeSettings(
+      displayName: displayName ?? this.displayName,
       hiddenSections: hiddenSections ?? this.hiddenSections,
       showClock: showClock ?? this.showClock,
       showDate: showDate ?? this.showDate,
@@ -313,6 +339,7 @@ class HomeSettings {
   }
 
   Map<String, Object?> toJson() => <String, Object?>{
+    'displayName': displayName,
     'hiddenSections': hiddenSections
         .map((HomeSection s) => s.id)
         .toList(growable: false),
@@ -332,6 +359,7 @@ class HomeSettings {
       }
     }
     return HomeSettings(
+      displayName: normaliseDisplayName(json['displayName'] as String?),
       hiddenSections: hidden,
       showClock: (json['showClock'] as bool?) ?? true,
       showDate: (json['showDate'] as bool?) ?? true,

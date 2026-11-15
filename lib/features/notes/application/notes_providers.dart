@@ -39,6 +39,9 @@ class NoteActions {
 
   Future<Note> create() => _ref.read(noteRepositoryProvider).create();
 
+  Future<Note> insert(Note note) =>
+      _ref.read(noteRepositoryProvider).insert(note);
+
   Future<void> save(Note note) =>
       _ref.read(noteRepositoryProvider).update(note);
 

@@ -199,7 +199,7 @@ void main() {
       repository = SettingsRepository(preferences);
     });
 
-    test('saves and reloads the display profile in the v2 envelope', () async {
+    test('saves and reloads the display profile in the v3 envelope', () async {
       await repository.save(
         const AppSettings.defaults().copyWith(
           display: const DisplaySettings(profile: DisplayProfile.eink),
@@ -208,7 +208,7 @@ void main() {
       final Map<String, Object?> document = jsonDecode(
         preferences.getString(SettingsRepository.settingsKey)!,
       ) as Map<String, Object?>;
-      expect(document['version'], 2);
+      expect(document['version'], 3);
       expect(document['display'], <String, Object?>{'profile': 'eink'});
       expect(repository.load().display.profile, DisplayProfile.eink);
       expect(

@@ -6,7 +6,9 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
 import '../../../app/router.dart';
+import '../../../core/errors/paper_exception.dart';
 import '../../../core/utils/date_format.dart';
+import '../../../core/utils/ids.dart';
 import '../../../shared/widgets/paper_widgets.dart';
 import '../../../theme/paper_palette.dart';
 import '../../../theme/paper_space.dart';
@@ -16,13 +18,17 @@ import '../domain/note.dart';
 
 /// The note editor.
 ///
-/// Two fields and a word count. The draft is written to the database on a
-/// debounce, and leaving the screen flushes the final keystrokes before the
-/// route is popped.
+/// A new note is a draft that exists only in memory until the user writes
+/// something meaningful. The first meaningful autosave inserts one row; every
+/// later save updates that same row. Leaving an untouched draft writes nothing.
+/// Saves are serialised so an older asynchronous write can never overwrite a
+/// newer revision, and leaving flushes the latest keystrokes before the route
+/// is popped.
 class NoteEditorScreen extends ConsumerStatefulWidget {
-  const NoteEditorScreen({super.key, required this.noteId});
+  const NoteEditorScreen({super.key, this.noteId});
 
-  final String noteId;
+  /// Null for a new, unsaved draft.
+  final String? noteId;
 
   @override
   ConsumerState<NoteEditorScreen> createState() => _NoteEditorScreenState();
@@ -35,16 +41,30 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
   Timer? _saveTimer;
   Note? _note;
+  String? _draftId;
   bool _loaded = false;
   bool _suppressChanges = false;
   bool _leaving = false;
+  bool _deleted = false;
+  bool _saveFailed = false;
+
+  /// Serialises writes. Each task captures the latest text when it runs, so a
+  /// queued save always reflects the newest revision rather than the revision
+  /// that existed when the timer fired.
+  Future<void> _writeQueue = Future<void>.value();
 
   @override
   void initState() {
     super.initState();
     _title.addListener(_onChanged);
     _body.addListener(_onChanged);
-    unawaited(_load());
+    final String? id = widget.noteId;
+    if (id == null) {
+      _draftId = newLocalId();
+      _loaded = true;
+    } else {
+      unawaited(_load(id));
+    }
   }
 
   @override
@@ -58,10 +78,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     super.dispose();
   }
 
-  Future<void> _load() async {
-    final Note? loaded = await ref
-        .read(noteRepositoryProvider)
-        .findById(widget.noteId);
+  Future<void> _load(String id) async {
+    final Note? loaded = await ref.read(noteRepositoryProvider).findById(id);
     if (!mounted) return;
     if (loaded == null) {
       Navigator.of(context).maybePop();
@@ -78,34 +96,86 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     setState(() => _loaded = true);
   }
 
+  bool get _hasContent =>
+      _title.text.trim().isNotEmpty || _body.text.trim().isNotEmpty;
+
   bool get _isDirty {
     final Note? note = _note;
-    if (note == null) return false;
+    if (note == null) return _hasContent;
     return _title.text != note.title || _body.text != note.body;
   }
 
   void _onChanged() {
     if (_suppressChanges) return;
+    _saveFailed = false;
     _scheduleSave();
     setState(() {});
   }
 
   void _scheduleSave() {
     _saveTimer?.cancel();
-    _saveTimer = Timer(const Duration(milliseconds: 700), _save);
+    _saveTimer = Timer(const Duration(milliseconds: 700), () {
+      unawaited(_save());
+    });
   }
 
-  Future<void> _save() async {
+  /// Queues one save. The repository call runs only after every earlier save
+  /// has finished, which makes overlapping debounce and Back flushes safe.
+  Future<void> _save() {
+    if (_deleted) return Future<void>.value();
+    final Future<void> queued = _writeQueue.then((_) => _persistLatest());
+    _writeQueue = queued;
+    return queued;
+  }
+
+  Future<void> _persistLatest() async {
+    if (_deleted || !mounted) return;
     final Note? note = _note;
-    if (note == null || !_isDirty) return;
-    final Note next = note.copyWith(
-      title: _title.text,
-      body: _body.text,
-      updatedAt: DateTime.now(),
-    );
-    await ref.read(noteActionsProvider).save(next);
-    _note = next;
-    if (mounted) setState(() {});
+    final String title = _title.text;
+    final String body = _body.text;
+    try {
+      if (note == null) {
+        if (title.trim().isEmpty && body.trim().isEmpty) return;
+        final DateTime now = DateTime.now();
+        final Note created = await ref
+            .read(noteActionsProvider)
+            .insert(
+              Note(
+                id: _draftId!,
+                title: title,
+                body: body,
+                createdAt: now,
+                updatedAt: now,
+              ),
+            );
+        if (_deleted) {
+          // Delete raced the insert. Remove the row that was just created
+          // rather than leaving an orphan behind.
+          await ref.read(noteActionsProvider).delete(created.id);
+          return;
+        }
+        _note = created;
+        _saveFailed = false;
+        if (mounted) setState(() {});
+        return;
+      }
+      if (title == note.title && body == note.body) return;
+      final Note next = note.copyWith(
+        title: title,
+        body: body,
+        updatedAt: DateTime.now(),
+      );
+      await ref.read(noteActionsProvider).save(next);
+      _note = next;
+      _saveFailed = false;
+      if (mounted) setState(() {});
+    } on PaperException {
+      _saveFailed = true;
+      if (mounted) setState(() {});
+    } catch (_) {
+      _saveFailed = true;
+      if (mounted) setState(() {});
+    }
   }
 
   /// Flushes before leaving, so a back gesture never discards the last
@@ -120,6 +190,15 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     _saveTimer?.cancel();
     await _save();
     if (!mounted) return;
+    if (_saveFailed && _isDirty) {
+      _leaving = false;
+      PaperToast.show(
+        context,
+        'Your note could not be saved. Your text is still here.',
+        icon: Icons.error_outline,
+      );
+      return;
+    }
     final NavigatorState navigator = Navigator.of(context);
     if (navigator.canPop()) {
       navigator.pop();
@@ -222,7 +301,11 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                       ],
                     ),
                   ),
-                  _StatusBar(words: words, dirty: dirty),
+                  _StatusBar(
+                    words: words,
+                    dirty: dirty,
+                    saveFailed: _saveFailed,
+                  ),
                 ],
               ),
       ),
@@ -231,26 +314,51 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
   Future<void> _deleteNote() async {
     final Note? note = _note;
-    if (note == null) return;
+    if (note == null && !_hasContent) {
+      Navigator.of(context).maybePop();
+      return;
+    }
     final bool confirmed = await confirmDestructiveAction(
       context,
-      title: 'Delete this note?',
-      message: '"${note.displayTitle}" will be removed from this device.',
-      confirmLabel: 'Delete',
+      title: note == null ? 'Discard this draft?' : 'Delete this note?',
+      message: note == null
+          ? 'This note has not been saved yet. Discarding it cannot be undone.'
+          : '"${note.displayTitle}" will be removed from this device.',
+      confirmLabel: note == null ? 'Discard' : 'Delete',
     );
-    if (!confirmed) return;
+    if (!confirmed || !mounted) return;
+
+    _deleted = true;
     _saveTimer?.cancel();
-    await ref.read(noteActionsProvider).delete(note.id);
+    // Let an in-flight insert or update finish, then delete the persisted row.
+    await _writeQueue;
+    try {
+      final Note? persisted = _note;
+      if (persisted != null) {
+        await ref.read(noteActionsProvider).delete(persisted.id);
+      }
+    } on PaperException catch (error) {
+      _deleted = false;
+      if (mounted) {
+        PaperToast.show(context, error.message, icon: Icons.error_outline);
+      }
+      return;
+    }
     if (!mounted) return;
-    Navigator.of(context).maybePop();
+    Navigator.of(context).pop();
   }
 }
 
 class _StatusBar extends StatelessWidget {
-  const _StatusBar({required this.words, required this.dirty});
+  const _StatusBar({
+    required this.words,
+    required this.dirty,
+    required this.saveFailed,
+  });
 
   final int words;
   final bool dirty;
+  final bool saveFailed;
 
   @override
   Widget build(BuildContext context) {
@@ -271,7 +379,16 @@ class _StatusBar extends StatelessWidget {
         children: <Widget>[
           Text(words == 1 ? '1 word' : '$words words', style: type.caption),
           const Spacer(),
-          if (dirty)
+          if (saveFailed)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(Icons.error_outline, size: 13, color: palette.inkMuted),
+                const SizedBox(width: PaperSpace.xs),
+                Text('Not saved', style: type.caption),
+              ],
+            )
+          else if (dirty)
             Row(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[

@@ -5,7 +5,7 @@ environment. It is not an operating-system replacement: it can be selected as an
 Android Home app, but it still runs inside Android and keeps using the platform
 for file access, PDF rendering, app launching, and keep-screen-on.
 
-This document describes the v1.3 architecture. The reader-engine choice and its
+This document describes the v1.4 architecture. The reader-engine choice and its
 trade-offs are recorded separately in
 [`reader-engine-decision.md`](reader-engine-decision.md). The navigation and
 launcher contract is documented in
@@ -96,14 +96,27 @@ I/O, `application/` owns Riverpod state, and `presentation/` owns widgets.
 | Store | Contents | Owner |
 | --- | --- | --- |
 | SQLite `paperos.db` | documents, progress, bookmarks, annotations, notes, tasks, granted folders | `AppDatabaseOpener` and the repositories |
-| `shared_preferences` | appearance, reader preferences, Home sections, launcher settings, trusted folder metadata | `SettingsRepository` |
+| `shared_preferences` | appearance, reader preferences, Home title/sections, launcher settings, trusted folder metadata | `SettingsRepository` |
 | App documents directory | imported originals and generated EPUB covers | `AppStorage` and `LibraryService` |
 | App trash directory | files awaiting removal | `AppStorage` / `LibraryService` |
 | Backup staging directory | temporary archive files and extracted restore data | `BackupService` and `BackupArchive` |
 | `safety/` directory | newest three pre-restore archives | `BackupService` |
 
 Settings are deliberately separate from SQLite: changing the theme must not
-require opening the content database.
+require opening the content database. The settings envelope is version 3.
+Version 3 adds `home.displayName`; versions 1 and 2 remain readable, and a
+missing or empty title normalises to `PaperOS`. `SettingsController` serialises
+all writes through one queue and coalesces rapid Home-title edits, so an older
+asynchronous write cannot overwrite a newer one. A Home-title flush runs when the
+editor loses focus, when the route leaves, and before a backup snapshot.
+
+Notes use a different rule: the database is the source of truth only after the
+user has written something meaningful. `NoteEditorScreen` generates a stable id
+for a new draft, but does not insert until the first non-whitespace title or body
+save. Saves are serialised, Back flushes the latest text, a failed save keeps the
+editor open, and a delete marks the draft deleted before awaiting the queue. If
+the queued insert completes after that mark, the editor deletes the row it just
+created instead of leaving an orphan.
 
 SQLite foreign keys are enabled with `PRAGMA foreign_keys = ON`. Bookmarks and
 annotations reference `documents(id)` with `ON DELETE CASCADE`, so deleting a
@@ -145,24 +158,30 @@ restoring a stale route stack.
 Files surfaces.
 
 1. Reject unknown or unreadable extensions, files above
-   `PaperConfig.maxImportBytes`, missing sources, and empty files.
+   `PaperConfig.maxImportBytes`, missing sources, and empty sources.
 2. Look up the exact SAF `sourceUri`. If a row exists and its private copy is
    still present, return it unchanged. Re-import is a no-op.
-3. Compute a streaming SHA-256 content fingerprint. If no source match exists,
-   look up the fingerprint. A live match is returned unchanged.
-4. Copy the source into app-private storage with a fixed-size streaming buffer;
-   the whole file never becomes one Dart allocation.
-5. Probe the copied file:
+3. Copy the source into a `<destination>.part` file while feeding the same chunks
+   into SHA-256. The whole file never becomes one Dart allocation, and the bytes
+   are read once for both jobs.
+4. Refuse an empty copy without touching any existing destination. If no source
+   match exists, look up the resulting fingerprint. A live match is returned
+   unchanged and the duplicate copy is deleted; a stale match is revived below.
+5. Rename the complete `.part` file into place only after the write succeeds, so
+   an interrupted copy never replaces a readable document with a truncated one.
+6. Probe the copied file:
    - PDF: ask the native service for a page count; unreadable files are kept but
      marked `unreadable`.
-   - EPUB: run the bounded parser; use package metadata when present, write a
-     private cover if safe, and otherwise retain the file-name title.
+   - EPUB: run the metadata-only probe, which validates the archive, container,
+     package, manifest and spine but does not extract chapter text. Use package
+     metadata when present, write a private cover if safe, and otherwise retain
+     the file-name title.
    - TXT: keep the file-name title and leave pagination to the reader.
-6. If an existing row was found by source URI or fingerprint but its private copy
+7. If an existing row was found by source URI or fingerprint but its private copy
    was missing, relink the row instead of creating a second one. The row id stays
    the same, which preserves progress, bookmarks, annotations, and a custom
    title. Only file-backed fields and metadata are replaced.
-7. Insert a new row only when neither identity check found a match.
+8. Insert a new row only when neither identity check found a match.
 
 This closes the stale-file duplicate bug in both directions: the same source
 cannot create two rows, and identical content imported through a different
@@ -174,16 +193,27 @@ The EPUB path deliberately has no WebView and no JavaScript runtime.
 
 ```
 .epub file
-  → bounded ZIP validation
-  → META-INF/container.xml
-  → package document (.opf)
-  → metadata + manifest + spine + TOC
-  → per-spine XHTML → safe plain text + anchors
-  → composite text + chapter offsets
-  → TextPaginator
-  → EpubReaderBackend
-  → reader UI (paged or scrolling)
+  → import probe: bounded ZIP validation → container → package
+      → metadata + manifest + spine + cover only
+  → reader open: bounded ZIP validation → container → package
+      → per-spine XHTML → safe plain text + anchors
+      → composite text + chapter offsets
+      → TextPaginator
+      → EpubReaderBackend
+      → reader UI (paged or scrolling)
 ```
+
+The probe and the full parse share `_readPackage`, so a book that the reader
+would reject for a missing manifest, empty spine or malformed package cannot be
+accepted by import. The probe deliberately does not decompress chapter text:
+import needs honest metadata, not a paginated book.
+
+The full parse runs through `Isolate.run` when isolates are available and falls
+back to the calling isolate otherwise. Both the full parse and the probe share
+one static serialised queue, so a reader open and a concurrent import cannot
+expand two large archives at once. Results cross the isolate boundary as plain
+`EpubParseOutcome`/`EpubProbeOutcome` values; a user-facing failure string is
+carried instead of a platform exception.
 
 Validation happens before content is treated as a book:
 
@@ -350,12 +380,13 @@ The migration path is explicit and additive. See
 ## Verification boundaries
 
 The automated suite runs against the real SQLite engine and exercises the parser,
-pagination, locator restore, annotation ranges, import deduplication, migration,
-backup/restore validation, annotation export, display policy, navigation Back
-policy, router recovery, system-intent classification, launcher providers, and
-real widget surfaces. It does not prove Android runtime behaviour. SAF picker
-interaction, native PDF rasterisation, EPUB selection handles, backup through a
-real document provider, e-ink appearance, HOME-role selection, warm launcher
-intents, duplicate tasks, app launching, predictive Back and release signing
-remain device checks. The manual checklist is in
-[`manual-testing.md`](manual-testing.md).
+async/probe queue, pagination, locator restore, annotation ranges, import
+deduplication and atomic copy, migration, backup/restore validation, annotation
+export, display policy, settings v3 writes, Home-title normalisation, note draft
+lifecycle, app-catalog ordering, palette contrast, navigation Back policy, router
+recovery, system-intent classification, launcher providers, and real widget
+surfaces. It does not prove Android runtime behaviour. SAF picker interaction,
+native PDF rasterisation, EPUB selection handles, backup through a real document
+provider, e-ink appearance, HOME-role selection, warm launcher intents, duplicate
+tasks, app launching, predictive Back and release signing remain device checks.
+The manual checklist is in [`manual-testing.md`](manual-testing.md).

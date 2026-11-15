@@ -20,6 +20,7 @@ import android.provider.Settings
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.util.Locale
 import java.util.concurrent.Executors
 
 /**
@@ -117,37 +118,42 @@ class AppCatalogChannel(private val context: Context) {
                     packageManager.queryIntentActivities(intent, 0)
                 }
 
-            val apps = ArrayList<Map<String, Any?>>(resolved.size)
-            val seen = HashSet<String>(resolved.size * 2)
+            val byPackage = HashMap<String, Map<String, Any?>>(resolved.size)
 
             for (info in resolved) {
                 val activity: ActivityInfo = info.activityInfo ?: continue
                 val packageName = activity.packageName ?: continue
                 if (packageName == context.packageName) continue
 
-                val key = "$packageName/${activity.name}"
-                if (!seen.add(key)) continue
+                // A launcher presents one icon per package. Some packages
+                // declare more than one launcher activity; keep the
+                // lexicographically smallest activity name so the choice does
+                // not depend on the order Android happened to resolve them.
+                val existingActivity = byPackage[packageName]?.get("activityName") as String?
+                if (existingActivity != null && activity.name >= existingActivity) continue
 
                 val flags = activity.applicationInfo?.flags ?: 0
                 val isSystem = (flags and ApplicationInfo.FLAG_SYSTEM) != 0 ||
                     (flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
 
-                apps.add(
-                    mapOf(
-                        "packageName" to packageName,
-                        "activityName" to activity.name,
-                        "label" to safeLabel(packageManager, info, activity),
-                        "isSystem" to isSystem,
-                    ),
+                byPackage[packageName] = mapOf(
+                    "packageName" to packageName,
+                    "activityName" to activity.name,
+                    "label" to safeLabel(packageManager, info, activity),
+                    "isSystem" to isSystem,
                 )
             }
 
-            // User-installed apps first, then alphabetical. A launcher list that
-            // is 90% system components is a launcher list nobody can read.
+            val apps = ArrayList(byPackage.values)
+
+            // Stable metadata order. The canonical presentation order lives in
+            // Dart, so this sort only makes repeated platform reads
+            // deterministic; it does not group system apps separately.
             apps.sortWith(
                 compareBy(
-                    { !(it["isSystem"] as Boolean) },
-                    { (it["label"] as String).lowercase() },
+                    { (it["label"] as String).lowercase(Locale.ROOT) },
+                    { it["packageName"] as String },
+                    { it["activityName"] as String },
                 ),
             )
 
@@ -155,10 +161,12 @@ class AppCatalogChannel(private val context: Context) {
                 mapOf(
                     "apps" to apps,
                     "totalMatched" to resolved.size,
-                    // On Android 11+ an incomplete package-visibility query
-                    // usually resolves only this app itself. The Dart drawer
-                    // explains that instead of claiming nothing is installed.
-                    "restricted" to (resolved.size <= 1),
+                    // A small or empty result is not evidence of restricted
+                    // package visibility: a device may genuinely have few
+                    // launchable apps. Actual platform failures are reported
+                    // through result.error above instead of being guessed at
+                    // from a list length.
+                    "restricted" to false,
                 ),
             )
         } catch (error: Throwable) {

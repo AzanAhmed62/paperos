@@ -113,10 +113,67 @@ void main() {
     expect(find.text('Pinned'), findsOneWidget);
     expect(find.text('Reader'), findsOneWidget);
 
-    await tester.scrollUntilVisible(find.text('PaperOS is your home app'), 300);
+    // PaperOS already holds the HOME role, so there is no setup prompt.
+    expect(find.text('Make PaperOS your home app'), findsNothing);
+    expect(find.text('Set up'), findsNothing);
+  });
+
+  testWidgets(
+    'uses the stored heading without duplicate Search or Apps icons',
+    (WidgetTester tester) async {
+      await pumpHome(
+        tester,
+        launcher: FakeLauncherService(apps: <InstalledApp>[reader], home: true),
+        settings: const AppSettings(
+          home: HomeSettings(displayName: 'Quiet Hours'),
+        ),
+      );
+
+      expect(find.text('Quiet Hours'), findsOneWidget);
+      expect(find.text('PaperOS'), findsNothing);
+      // One Search and one Apps entry, both in the four-action row. The header
+      // must not repeat either action as an icon.
+      expect(find.text('Search'), findsOneWidget);
+      expect(find.text('Apps'), findsOneWidget);
+      expect(find.byTooltip('Search'), findsNothing);
+      expect(find.byTooltip('Apps'), findsNothing);
+    },
+  );
+
+  testWidgets('hiding Search leaves Apps as the only app entry point', (
+    WidgetTester tester,
+  ) async {
+    await pumpHome(
+      tester,
+      launcher: FakeLauncherService(home: true),
+      settings: const AppSettings(
+        home: HomeSettings(hiddenSections: <HomeSection>{HomeSection.search}),
+      ),
+    );
+
+    expect(find.text('Search'), findsNothing);
+    expect(find.text('Apps'), findsOneWidget);
+    expect(find.text('New note'), findsOneWidget);
+    expect(find.text('New task'), findsOneWidget);
+  });
+
+  testWidgets('shows one contextual HOME-role prompt when not the default', (
+    WidgetTester tester,
+  ) async {
+    await pumpHome(tester, launcher: FakeLauncherService(home: false));
+
+    await tester.scrollUntilVisible(
+      find.text('Make PaperOS your home app'),
+      300,
+    );
     await tester.pump();
-    expect(find.text('PaperOS is your home app'), findsOneWidget);
+
+    expect(find.text('Make PaperOS your home app'), findsOneWidget);
     expect(find.text('Pressing Home returns to this screen.'), findsOneWidget);
+    expect(find.text('Set up'), findsOneWidget);
+    // The old duplicated launcher-status rows are gone.
+    expect(find.text('PaperOS is not your home app'), findsNothing);
+    expect(find.text('Open the app drawer'), findsNothing);
   });
 
   testWidgets('date visibility and density follow the Home preferences', (

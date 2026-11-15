@@ -71,7 +71,7 @@ no credentials and has no storage access.
 App-private storage is not a promise of forensic secrecy. A rooted device, a
 debug build, an OS-level backup tool, or malware with equivalent privileges may
 be able to read it. PaperOS does not add its own database or archive encryption
-in 1.2.
+in 1.4.
 
 ## Backup files are not encrypted
 
@@ -82,7 +82,7 @@ A `.paperosbackup` is a plain ZIP. It contains:
 - reading progress and history;
 - bookmarks, highlights, annotations and notes;
 - tasks;
-- settings, including pinned app package names;
+- settings, including the custom Home title and pinned app package names;
 - SAF folder URIs.
 
 Anyone who can read the file can read that content. Anyone who can modify it can
@@ -172,7 +172,7 @@ raise the minimum Dart/Flutter version.
 - The debug manifest contains `INTERNET`; only a release manifest audit is
   evidence for distribution.
 - The app's private trash and safety snapshots are not user-exportable through
-  the UI in 1.3.
+  the UI in 1.4.
 
 ## Audit commands
 

@@ -1,10 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paperos/features/reader/epub/epub_book.dart';
 import 'package:paperos/features/reader/epub/epub_parser.dart';
+import 'package:path/path.dart' as p;
 
 import '../support/epub_fixture.dart';
 
@@ -211,6 +213,90 @@ void main() {
           .book;
       expect(book.chapters, hasLength(1));
       expect(book.chapters.single.text, contains('no extractable text'));
+    });
+  });
+
+  group('EpubParser probe', () {
+    test('reads metadata, spine count and cover without chapter text', () {
+      final EpubProbeResult probe = const EpubParser().probeBytes(
+        buildEpubFixture(),
+      );
+
+      expect(probe.metadata.title, 'A Test Book');
+      expect(probe.metadata.author, 'Ada Lovelace');
+      expect(probe.chapterCount, 2);
+      expect(probe.coverExtension, 'png');
+      expect(probe.coverBytes, isNotNull);
+    });
+
+    test('applies the same structural checks as a full parse', () {
+      expect(
+        () => const EpubParser().probeBytes(
+          Uint8List.fromList(utf8.encode('not a zip archive')),
+        ),
+        throwsA(isA<EpubParseException>()),
+      );
+      expect(
+        () => const EpubParser().probeBytes(
+          buildEpubFixture(overrideMimetype: 'application/zip'),
+        ),
+        throwsA(
+          isA<EpubParseException>().having(
+            (EpubParseException error) => error.message,
+            'message',
+            contains('not an EPUB'),
+          ),
+        ),
+      );
+    });
+
+    test('probeFileAsync reads a real file off the caller isolate', () async {
+      final Directory temp = await Directory.systemTemp.createTemp(
+        'paperos_probe_',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+      final File file = File(p.join(temp.path, 'book.epub'));
+      await file.writeAsBytes(buildEpubFixture(), flush: true);
+
+      final EpubProbeResult probe = await const EpubParser().probeFileAsync(
+        file.path,
+      );
+
+      expect(probe.metadata.title, 'A Test Book');
+      expect(probe.chapterCount, 2);
+    });
+
+    test('parseFileAsync recovers the queue after a malformed book', () async {
+      final Directory temp = await Directory.systemTemp.createTemp(
+        'paperos_async_',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+      final File broken = File(p.join(temp.path, 'broken.epub'));
+      await broken.writeAsBytes(utf8.encode('not a zip archive'), flush: true);
+      final File valid = File(p.join(temp.path, 'valid.epub'));
+      await valid.writeAsBytes(buildEpubFixture(), flush: true);
+
+      await expectLater(
+        const EpubParser().parseFileAsync(broken.path),
+        throwsA(isA<EpubParseException>()),
+      );
+      final EpubParseResult parsed = await const EpubParser().parseFileAsync(
+        valid.path,
+      );
+      expect(parsed.book.text, contains('Alpha bravo'));
+    });
+
+    test('reports a missing file as a recoverable EPUB error', () async {
+      await expectLater(
+        const EpubParser().parseFileAsync('/definitely/not/here.epub'),
+        throwsA(
+          isA<EpubParseException>().having(
+            (EpubParseException error) => error.message,
+            'message',
+            contains('no longer on disk'),
+          ),
+        ),
+      );
     });
   });
 }

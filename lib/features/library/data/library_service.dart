@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../../../config/app_config.dart';
@@ -8,7 +10,6 @@ import '../../../core/platform/document_import_service.dart';
 import '../../../core/platform/pdf_service.dart';
 import '../../../core/storage/app_storage.dart';
 import '../../../core/utils/date_format.dart';
-import '../../../core/utils/file_fingerprint.dart';
 import '../../../core/utils/ids.dart';
 import '../domain/document.dart';
 import '../domain/library_models.dart';
@@ -95,14 +96,6 @@ class LibraryService {
       return existing;
     }
 
-    final String? fingerprint = await fileFingerprint(source);
-    if (existing == null && fingerprint != null) {
-      existing = await _documents.findByFingerprint(fingerprint);
-      if (existing != null && File(existing.localPath).existsSync()) {
-        return existing;
-      }
-    }
-
     final String id = existing?.id ?? newLocalId();
     final Directory libraryDir = await _storage.library();
     final File destination = _destinationFor(
@@ -113,9 +106,13 @@ class LibraryService {
     );
     await destination.parent.create(recursive: true);
 
-    int written;
+    // One read of the source: the bytes are copied to a `.part` file and hashed
+    // in the same pass. The finished copy is renamed into place only after the
+    // write succeeds, so a failed or interrupted import can never leave a
+    // half-written file where a document row expects a complete one.
+    final _CopyResult copy;
     try {
-      written = await _copyStreaming(source, destination);
+      copy = await _copyWithFingerprint(source, destination);
     } on PaperException {
       rethrow;
     } on FileSystemException catch (error) {
@@ -125,16 +122,29 @@ class LibraryService {
       );
     }
 
-    if (written == 0) {
-      try {
-        await destination.delete();
-      } on FileSystemException {
-        // Nothing useful to do; the import is already failing.
-      }
+    if (copy.bytes == 0) {
       throw const PaperException.corruptDocument(
         'That file is empty, so there is nothing to read.',
       );
     }
+
+    // Fingerprint duplicate detection happens after the copy because the hash
+    // is produced by that same pass. A byte-identical copy of a document that
+    // already has a readable file is discarded instead of becoming a second
+    // row; a stale row with the same bytes is revived below.
+    if (existing == null && copy.fingerprint.isNotEmpty) {
+      final Document? duplicate = await _documents.findByFingerprint(
+        copy.fingerprint,
+      );
+      if (duplicate != null) {
+        if (File(duplicate.localPath).existsSync()) {
+          await _deleteQuietly(destination);
+          return duplicate;
+        }
+        existing = duplicate;
+      }
+    }
+    final String fingerprint = copy.fingerprint;
 
     DocumentStatus status = DocumentStatus.ready;
     int? pageCount;
@@ -160,28 +170,30 @@ class LibraryService {
       if (probe.failure != null) {
         status = DocumentStatus.unreadable;
       } else {
-        final EpubBook book = probe.result!.book;
-        final String? metadataTitle = book.metadata.title?.trim();
+        final EpubMetadata metadata = probe.result!.metadata;
+        final String? metadataTitle = metadata.title?.trim();
         if (metadataTitle != null && metadataTitle.isNotEmpty) {
           title = metadataTitle;
         }
-        author = book.metadata.author;
-        publisher = book.metadata.publisher;
-        language = book.metadata.language;
-        identifier = book.metadata.identifier;
-        description = book.metadata.description;
+        author = metadata.author;
+        publisher = metadata.publisher;
+        language = metadata.language;
+        identifier = metadata.identifier;
+        description = metadata.description;
         coverPath = await _saveCover(id, probe.result!) ?? existing?.coverPath;
       }
     }
 
-    final String finalFingerprint = fingerprint ?? existing?.fingerprint ?? '';
+    final String finalFingerprint = fingerprint.isNotEmpty
+        ? fingerprint
+        : (existing?.fingerprint ?? '');
     if (existing != null) {
       final Document revived = await _documents.relink(
         existing,
         localPath: destination.path,
         sourceUri: picked.sourceUri,
         sourceName: picked.name,
-        byteSize: written,
+        byteSize: copy.bytes,
         pageCount: pageCount ?? existing.pageCount,
         status: status,
         fingerprint: finalFingerprint,
@@ -204,7 +216,7 @@ class LibraryService {
       sourceName: picked.name,
       title: title,
       format: format,
-      byteSize: written,
+      byteSize: copy.bytes,
       pageCount: pageCount,
       status: status,
       isFavorite: false,
@@ -268,7 +280,7 @@ class LibraryService {
 
   Future<_EpubProbe> _probeEpub(String path) async {
     try {
-      return _EpubProbe(result: _epub.parseFile(path));
+      return _EpubProbe(result: await _epub.probeFileAsync(path));
     } on EpubParseException catch (error) {
       return _EpubProbe(failure: error.message);
     } on PaperException catch (error) {
@@ -278,7 +290,7 @@ class LibraryService {
     }
   }
 
-  Future<String?> _saveCover(String id, EpubParseResult result) async {
+  Future<String?> _saveCover(String id, EpubProbeResult result) async {
     final cover = result.coverBytes;
     final String? extension = result.coverExtension;
     if (cover == null || extension == null || cover.isEmpty) return null;
@@ -444,22 +456,78 @@ class LibraryService {
     return File(p.join(libraryDir.path, '$id$extension'));
   }
 
-  /// Copies with a fixed-size buffer so a 400 MB textbook never becomes a
-  /// 400 MB allocation.
-  static Future<int> _copyStreaming(File source, File destination) async {
-    final IOSink sink = destination.openWrite();
+  /// Copies and fingerprints in one pass.
+  ///
+  /// The bytes are written to `<destination>.part`; the hash is fed from the
+  /// same chunks. Only a complete copy is renamed over the destination, so an
+  /// interrupted write leaves the previous file (when reviving a row) intact
+  /// and never exposes a truncated import to the reader.
+  static Future<_CopyResult> _copyWithFingerprint(
+    File source,
+    File destination,
+  ) async {
+    final File partial = File('${destination.path}.part');
+    final _DigestSink digestSink = _DigestSink();
+    final ByteConversionSink hasher = sha256.startChunkedConversion(digestSink);
+    final IOSink sink = partial.openWrite();
+    bool closed = false;
     int written = 0;
     try {
       await for (final List<int> chunk in source.openRead()) {
         written += chunk.length;
+        hasher.add(chunk);
         sink.add(chunk);
       }
       await sink.flush();
-    } finally {
       await sink.close();
+      closed = true;
+      hasher.close();
+      if (written == 0) return const _CopyResult(bytes: 0, fingerprint: '');
+      await partial.rename(destination.path);
+      return _CopyResult(
+        bytes: written,
+        fingerprint: digestSink.value?.toString() ?? '',
+      );
+    } finally {
+      if (!closed) {
+        try {
+          await sink.close();
+        } on Object {
+          // The original write error is the one worth reporting.
+        }
+      }
+      // After a successful rename this path no longer exists; on any failure it
+      // removes the partial file. `existsSync` avoids a noisy exception.
+      await _deleteQuietly(partial);
     }
-    return written;
   }
+
+  static Future<void> _deleteQuietly(File file) async {
+    try {
+      if (file.existsSync()) await file.delete();
+    } on FileSystemException {
+      // Best-effort cleanup. The import error is more useful than this one.
+    }
+  }
+}
+
+/// Result of a one-pass copy and fingerprint.
+class _CopyResult {
+  const _CopyResult({required this.bytes, required this.fingerprint});
+
+  final int bytes;
+  final String fingerprint;
+}
+
+/// Collects the single digest produced by [sha256.startChunkedConversion].
+class _DigestSink implements Sink<Digest> {
+  Digest? value;
+
+  @override
+  void add(Digest data) => value = data;
+
+  @override
+  void close() {}
 }
 
 /// Result of inspecting a PDF during import.
@@ -476,6 +544,6 @@ class PdfProbe {
 class _EpubProbe {
   const _EpubProbe({this.result, this.failure});
 
-  final EpubParseResult? result;
+  final EpubProbeResult? result;
   final String? failure;
 }

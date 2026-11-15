@@ -145,7 +145,7 @@ void main() {
   ) async {
     await pumpApp(tester);
 
-    await tester.tap(find.byTooltip('Apps'));
+    await tester.tap(find.text('Apps'));
     await settle(tester);
     expect(find.text('Search apps'), findsOneWidget);
 

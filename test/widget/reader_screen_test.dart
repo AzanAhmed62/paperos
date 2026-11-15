@@ -72,13 +72,19 @@ void main() {
     return document;
   }
 
-  Future<void> settle(WidgetTester tester) async {
-    for (int i = 0; i < 5; i++) {
+  Future<void> settle(
+    WidgetTester tester, {
+    Finder? until,
+    bool Function()? condition,
+  }) async {
+    for (int i = 0; i < 50; i++) {
       await tester.runAsync(() async {
         await Future<void>.delayed(const Duration(milliseconds: 80));
       });
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
+      if (until != null && until.evaluate().isNotEmpty) return;
+      if (condition != null && condition()) return;
     }
   }
 
@@ -106,7 +112,15 @@ void main() {
         ),
       ),
     );
-    await settle(tester);
+    await settle(
+      tester,
+      condition: () {
+        final Finder pages = find.byType(SelectableText);
+        if (pages.evaluate().isEmpty) return false;
+        final SelectableText page = tester.widget<SelectableText>(pages.first);
+        return page.textSpan?.toPlainText().contains('Alpha bravo') ?? false;
+      },
+    );
 
     expect(find.text('A Test Book'), findsOneWidget);
     final SelectableText pageText = tester.widget<SelectableText>(
