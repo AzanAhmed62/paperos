@@ -24,6 +24,20 @@ APK:
 build/app/outputs/flutter-apk/app-debug.apk
 ```
 
+For the RC analysis set, also build the unsigned release artifacts:
+
+```bash
+flutter build apk --release --no-pub -Ppaperos.allowUnsignedRelease=true
+flutter build apk --release --split-per-abi --no-pub -Ppaperos.allowUnsignedRelease=true
+flutter build appbundle --release --no-pub -Ppaperos.allowUnsignedRelease=true
+```
+
+The unsigned universal APK and AAB are written as `app-release.apk` and
+`app-release.aab`; rename them to `app-release-unsigned.apk` and
+`app-release-unsigned.aab` immediately. They are not installable. A production
+build requires owner signing credentials and must be built without the escape
+hatch.
+
 The debug manifest contains `INTERNET` for the Flutter development tool. The
 release manifest must be audited separately for a release build. Do not test
 network behaviour against the debug manifest and call it a release result.
@@ -55,10 +69,11 @@ does not support DRM.
 ## Checklist
 
 All rows 1–48 were written for the v1.3.0+4 build. Rows 49–58 cover the v1.4
-changes and are written for v1.4.0+5. Status values are explicit: **Not run**
-means the case was not exercised in the current run. A physical OnePlus 6T run on
-11 November 2026 covered the v1.3 rows marked **Passed** or **Partial**; no v1.4
-device run has been performed.
+changes and rows 59–62 cover the RC-1 reliability and privacy changes; both are
+written for v1.4.0+5. Status values are explicit: **Not run** means the case was
+not exercised in the current run. A physical OnePlus 6T run on 11 November 2026
+covered the v1.3 rows marked **Passed** or **Partial**; no v1.4 or RC-1 device
+run has been performed.
 
 | # | Area | Steps | Expected result | Result |
 | --- | --- | --- | --- | --- |
@@ -134,6 +149,15 @@ the v1.3 automated tests.
 | 57 | EPUB import probe and reader parse | Import a large EPUB and watch the UI; note when metadata and cover appear. Open the book. Force-stop during parsing and reopen. | Import shows metadata/cover without a frozen UI and without extracting every chapter; opening the book parses on the reader path before the first page; a malformed or interrupted book shows a recoverable error; a failed import leaves no partial file or duplicate row. | Not run |
 | 58 | Ink reader and palette coherence | Switch to the Ink style; open an EPUB and a PDF. Inspect page, top/bottom chrome, metadata, contents/settings sheets, selection handles, highlight, underline and attached-note styling. | Ink is charcoal on off-white, not pure black/white; all reader surfaces share the same palette; highlights and note fills are visible without glowing; rules are hairlines; White and Warm remain intact; the PDF page bitmap keeps its original colours. | Not run |
 
+### RC-1 reliability and privacy cases
+
+| # | Area | Steps | Expected result | Result |
+| --- | --- | --- | --- | --- |
+| 59 | In-app privacy statement | Open Settings → About → Privacy. Read the sheet at normal and large system text, and on a narrow phone width. | The sheet opens from About, scrolls without overflow, states what is stored, that the release build has no network/account/analytics/ads, that documents are copied only when chosen, that the app drawer uses launcher metadata, that backups are unencrypted and unsigned, and how to delete data. It contains no placeholder URL or invented contact. | Not run |
+| 60 | Abandoned import cleanup | On a debug build, start importing a large PDF/EPUB, kill the app process during the copy, then inspect `files/library/` with `run-as dev.paperos.app.debug ls -l files/library`. Restart the app immediately, then restart it again after the partial is more than one day old (or adjust the file mtime with `run-as ... touch`). | Immediately after the kill, the incomplete `<name>.part` may remain and the completed library file is intact. A fresh partial is not deleted by the first restart. A direct `library/*.part` older than one day is removed by startup cleanup. Nested `.part` files and completed library files are untouched. | Not run |
+| 61 | EPUB background failure and recovery | On a memory-constrained device, open a large EPUB while other apps hold memory. If the background isolate cannot start, retry after closing other apps. Then open a second valid EPUB. | The UI does not silently re-parse the large book on the frame loop. A recoverable message says the background reader could not start and suggests closing other apps. The app does not crash or hang, and the next book can still be opened because the serialised queue released. | Not run |
+| 62 | Internal testing track install | After the owner supplies signing credentials, upload the signed AAB to internal testing, install from the Play testing link on a physical device, and repeat rows 1, 3, 20, 29, 35 and 59. | The installed build reports `1.4.0 (5)`, the signing certificate is the owner's upload certificate (or Play App Signing), the core reading/backup/privacy flows work, and no debug-only `INTERNET` permission is present. | Not run — requires owner signing key and Play Console access |
+
 ## What to capture for a failure
 
 Include:
@@ -166,11 +190,20 @@ Rows 1, 38 and parts of 25, 37, 39, 41, 42, 44, 46 and 47 record that run.
 Everything else remains **not run**, including role confirmation, the system Home
 button while the role is held, real-launcher warm intents, OEM duplicate tasks,
 predictive Back, process death while reading, SAF document-provider flows,
-`ACTION_VIEW`, backup transfer, native PDF rendering and E-Ink visuals. **No
-v1.4 device run was performed**; rows 49–58 are therefore all **not run**.
-An unsigned release analysis APK was also built for v1.3 (`dev.paperos.app`,
-version 1.3.0+4, SHA-256
-`24bc261016c63b345b77058b595798c66bf4509994074df1bac51c0628fa9f41`); it is not
-installable or distributable, and production signing remains blocked by missing
-owner credentials. Automated coverage is recorded in the v1.4 and v1.3
-engineering reports and README; it is not a substitute for this checklist.
+`ACTION_VIEW`, backup transfer, native PDF rendering and E-Ink visuals.
+
+**No v1.4 or RC-1 device run was performed.** On 16 November 2026,
+`adb devices` listed no Android device and `flutter emulators` reported no
+emulators. Rows 49–62 are therefore all **not run**, except that row 62 also
+requires owner signing and Play Console access.
+
+The RC debug APK is debug-signed, package `dev.paperos.app.debug`, SHA-256
+`7264422456ab8dbf9765b72303b394e3df140d360bad30b2b606e13a0c00add0`. The RC
+unsigned universal release APK is `dev.paperos.app` 1.4.0+5, SHA-256
+`ccc0a2f9ebe3cf5525844c30a9682b07b2f11de0a55554895911ce60ff4e209e`; the
+unsigned release AAB is SHA-256
+`7f46e5cc9f0cc1033453ad84e47d9af424bb8c3eea7edc65a437547240b1e83b`. None of
+the release artifacts is installable or distributable. Production signing
+remains blocked by missing owner credentials. Automated coverage is recorded in
+the v1.4 and v1.3 engineering reports and README; it is not a substitute for
+this checklist.

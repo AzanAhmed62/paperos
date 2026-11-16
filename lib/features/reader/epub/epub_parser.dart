@@ -81,6 +81,13 @@ class EpubProbeOutcome {
   final String? failure;
 }
 
+/// Runs an isolate-safe parse task in the background.
+///
+/// The production runner is [Isolate.run]. The seam exists so tests can prove
+/// the fallback policy without depending on a platform where isolate startup
+/// actually fails.
+typedef EpubIsolateRunner = Future<T> Function<T>(FutureOr<T> Function() task);
+
 /// A small, deliberately bounded EPUB 2/3 parser.
 ///
 /// PaperOS does not render EPUB HTML or execute scripts. It reads the package
@@ -93,7 +100,32 @@ class EpubProbeOutcome {
 /// images, ruby, MathML or scripting. Unsupported publications are reported
 /// honestly instead of being displayed as a blank page.
 class EpubParser {
-  const EpubParser();
+  const EpubParser({EpubIsolateRunner? isolateRunner})
+    : _isolateRunner = isolateRunner;
+
+  /// Test seam; production uses [Isolate.run].
+  final EpubIsolateRunner? _isolateRunner;
+
+  static Future<T> _runOnIsolate<T>(FutureOr<T> Function() task) {
+    return Isolate.run(task);
+  }
+
+  /// Runs [task] on the configured isolate runner.
+  ///
+  /// Only [UnsupportedError] means "this platform has no isolates"; that is the
+  /// one case where running on the caller is the only way to open the book. Any
+  /// other isolate failure is reported as a recoverable error by the caller.
+  /// Re-running a large parse on the UI isolate after a spawn failure would
+  /// move the expensive work back onto the frame loop and could repeat the
+  /// memory pressure that caused the failure.
+  Future<T> _runBackground<T>(FutureOr<T> Function() task) async {
+    final EpubIsolateRunner runner = _isolateRunner ?? _runOnIsolate;
+    try {
+      return await runner(task);
+    } on UnsupportedError {
+      return await task();
+    }
+  }
 
   /// One shared queue for every background parse.
   ///
@@ -147,15 +179,21 @@ class EpubParser {
   ///
   /// Parsing a large book is CPU-bound and previously ran on the UI isolate,
   /// which dropped frames while a document opened. The result is plain data,
-  /// so the isolate boundary is safe. If isolates are unavailable on the
-  /// current platform the parse falls back to the calling isolate rather than
-  /// failing the open.
+  /// so the isolate boundary is safe. Only a platform that reports isolates as
+  /// unsupported falls back to the calling isolate; any other background
+  /// failure becomes a recoverable error instead of moving the parse onto the
+  /// frame loop.
   Future<EpubParseResult> parseFileAsync(String path) async {
     final EpubParseOutcome outcome = await _serialized(() async {
       try {
-        return await Isolate.run(() => _parseFileTask(path));
-      } catch (_) {
-        return _parseFileTask(path);
+        return await _runBackground<EpubParseOutcome>(
+          () => _parseFileTask(path),
+        );
+      } on Object {
+        return const EpubParseOutcome.failure(
+          'PaperOS could not start a background reader for this EPUB. '
+          'Close other apps and try again.',
+        );
       }
     });
     final String? failure = outcome.failure;
@@ -167,9 +205,14 @@ class EpubParser {
   Future<EpubProbeResult> probeFileAsync(String path) async {
     final EpubProbeOutcome outcome = await _serialized(() async {
       try {
-        return await Isolate.run(() => _probeFileTask(path));
-      } catch (_) {
-        return _probeFileTask(path);
+        return await _runBackground<EpubProbeOutcome>(
+          () => _probeFileTask(path),
+        );
+      } on Object {
+        return const EpubProbeOutcome.failure(
+          'PaperOS could not start a background reader for this EPUB. '
+          'Close other apps and try again.',
+        );
       }
     });
     final String? failure = outcome.failure;

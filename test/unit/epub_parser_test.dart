@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -297,6 +298,93 @@ void main() {
           ),
         ),
       );
+    });
+  });
+
+  group('EpubParser background failure policy', () {
+    test('does not re-run a failed parse on the caller isolate', () async {
+      final EpubParser parser = EpubParser(
+        isolateRunner: <T>(FutureOr<T> Function() task) async {
+          throw StateError('isolate startup failed');
+        },
+      );
+
+      // The missing path proves the caller-isolate parser did not run: that
+      // path would produce the "no longer on disk" message instead.
+      await expectLater(
+        parser.parseFileAsync('/definitely/not/here.epub'),
+        throwsA(
+          isA<EpubParseException>().having(
+            (EpubParseException error) => error.message,
+            'message',
+            contains('background reader'),
+          ),
+        ),
+      );
+    });
+
+    test('does not re-run a failed probe on the caller isolate', () async {
+      final EpubParser parser = EpubParser(
+        isolateRunner: <T>(FutureOr<T> Function() task) async {
+          throw StateError('isolate startup failed');
+        },
+      );
+
+      await expectLater(
+        parser.probeFileAsync('/definitely/not/here.epub'),
+        throwsA(
+          isA<EpubParseException>().having(
+            (EpubParseException error) => error.message,
+            'message',
+            contains('background reader'),
+          ),
+        ),
+      );
+    });
+
+    test(
+      'falls back to the caller only when isolates are unsupported',
+      () async {
+        final Directory temp = await Directory.systemTemp.createTemp(
+          'paperos_fallback_',
+        );
+        addTearDown(() => temp.delete(recursive: true));
+        final File file = File(p.join(temp.path, 'book.epub'));
+        await file.writeAsBytes(buildEpubFixture(), flush: true);
+
+        final EpubParser parser = EpubParser(
+          isolateRunner: <T>(FutureOr<T> Function() task) async {
+            throw UnsupportedError('isolates are unavailable');
+          },
+        );
+
+        final EpubParseResult parsed = await parser.parseFileAsync(file.path);
+        expect(parsed.book.metadata.title, 'A Test Book');
+      },
+    );
+
+    test('recovers the shared queue after a background failure', () async {
+      final EpubParser failing = EpubParser(
+        isolateRunner: <T>(FutureOr<T> Function() task) async {
+          throw StateError('isolate startup failed');
+        },
+      );
+      await expectLater(
+        failing.parseFileAsync('/definitely/not/here.epub'),
+        throwsA(isA<EpubParseException>()),
+      );
+
+      final Directory temp = await Directory.systemTemp.createTemp(
+        'paperos_queue_',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+      final File valid = File(p.join(temp.path, 'valid.epub'));
+      await valid.writeAsBytes(buildEpubFixture(), flush: true);
+
+      final EpubParseResult parsed = await const EpubParser().parseFileAsync(
+        valid.path,
+      );
+      expect(parsed.book.text, contains('Alpha bravo'));
     });
   });
 }

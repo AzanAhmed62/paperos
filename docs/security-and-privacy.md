@@ -24,10 +24,18 @@ declares:
   `android:fullBackupContent="false"`, so Android does not automatically upload
   app-private reading data through cloud backup;
 - one exported activity, `MainActivity`, because it must be launchable, can be
-  selected as a Home app, and accepts `VIEW` intents for PDF and plain text;
-- `<queries>` entries for launcher activities, Home activities, PDF viewers and
-  the Flutter text-processing intent. These are visibility declarations, not
-  permissions.
+  selected as a Home app, and accepts `VIEW` intents for PDF, EPUB and plain
+  text;
+- `<queries>` entries for launcher activities, Home activities, PDF/EPUB/text
+  viewers, the Flutter text-processing intent and the document picker. These are
+  visibility declarations, not permissions.
+
+The merged release manifest reports `minSdkVersion=24`, `targetSdkVersion=36`,
+`compileSdkVersion=36`, `versionCode=5` and `versionName=1.4.0`. The AAB
+manifest was decoded with `bundletool dump manifest`; the only permission in the
+merged manifest is the app-defined signature permission
+`dev.paperos.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` added by AndroidX for
+non-exported dynamic receivers.
 
 The debug manifest is expected to add `INTERNET` for Flutter's development
 tooling. Debug artifacts are not release artifacts. The release build's merged
@@ -65,6 +73,10 @@ no credentials and has no storage access.
 - Notes, tasks, settings and reading positions stay in app-private storage.
 - Deleted library files are moved into app-private trash rather than immediately
   unlinked.
+- An import writes `<destination>.part` and renames it only after a complete
+  copy. Startup maintenance removes direct `library/*.part` files older than one
+  day; it never recurses and never touches a completed library file. A fresh
+  partial is assumed to belong to an import that is still running.
 - Backup archives are written to app-private staging first, then streamed to the
   destination document URI the user selects.
 
@@ -128,6 +140,10 @@ cross-store crash window.
 - EPUB files are parsed by PaperOS' own bounded parser, not a WebView and not a
   remote rendering service. Archive paths, XML entity expansion and declared
   unbounded entries are treated as untrusted.
+- The full EPUB parse runs through `Isolate.run`. Only an `UnsupportedError`
+  (a platform without isolates) falls back to the calling isolate. Any other
+  isolate failure becomes a recoverable error instead of moving a large parse
+  back onto the UI isolate.
 - PDFs are rendered by Android's `PdfRenderer` through a platform channel.
 - Text imports are decoded locally and paginated locally.
 - Import size and page limits live in `lib/config/app_config.dart`.
@@ -145,6 +161,24 @@ or falls back to debug signing for a release build.
 There is no remote update channel. A release APK/AAB is only as trustworthy as
 the machine and key used to build it. Do not distribute an artifact that was
 signed with a shared or debug key.
+
+## Privacy policy and user-facing statement
+
+The repository contains a user-facing policy draft in two forms:
+
+- `docs/privacy-policy.md` for review and version control;
+- `docs/privacy-policy.html`, a self-contained page for future hosting.
+
+Both describe the shipped 1.4.0+5 behaviour, including local-only storage,
+unencrypted backups, the optional Home/app-drawer role and deletion paths.
+Settings → About → Privacy shows a short in-app statement that does not link to
+an unverified URL or name an invented contact.
+
+**Publication is blocked.** No verified developer contact and no public hosting
+URL have been supplied. Google Play requires a publicly reachable privacy-policy
+URL. Do not publish the draft with a placeholder address or enter a placeholder
+URL in Play Console. The exact owner actions are recorded in
+`docs/privacy-policy.md` and `docs/play-store-release-checklist.md`.
 
 ## Dependency surface
 
@@ -173,21 +207,41 @@ raise the minimum Dart/Flutter version.
   evidence for distribution.
 - The app's private trash and safety snapshots are not user-exportable through
   the UI in 1.4.
+- Abandoned import partials are removed only after they are more than one day
+  old, and only when the app starts again. A partial younger than that can remain
+  until a later startup.
+- The privacy policy is a repository draft; its public URL and developer contact
+  are publication blockers.
 
 ## Audit commands
 
-Run these on the actual release artifact, not on an assumption:
+Run these on the actual release artifact, not on an assumption. The commands
+below are the Linux forms used for the RC audit:
 
-```powershell
-# Merged release manifest
-Get-Content build\app\intermediates\merged_manifests\release\AndroidManifest.xml
+```bash
+# APK badging, minimum/target SDK and permissions
+"$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging \
+  build/app/outputs/flutter-apk/app-release-unsigned.apk
 
-# APK permissions and badging
-& "$env:ANDROID_HOME\build-tools\<version>\aapt.exe" dump badging path\to\app-release.apk
+# Signature verification (release must fail while unsigned)
+"$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs \
+  build/app/outputs/flutter-apk/app-release-unsigned.apk
 
-# AAB manifest (manifest is inside the bundle's base module)
-& "$env:ANDROID_HOME\build-tools\<version>\aapt2.exe" dump xmltree path\to\app-release.aab --file base/manifest/AndroidManifest.xml
+# AAB signature state
+jarsigner -verify build/app/outputs/bundle/release/app-release-unsigned.aab
+
+# AAB manifest and bundle validation
+java -cp bundletool.jar com.android.tools.build.bundletool.BundleToolMain \
+  dump manifest --bundle=build/app/outputs/bundle/release/app-release-unsigned.aab
+java -cp bundletool.jar com.android.tools.build.bundletool.BundleToolMain \
+  validate --bundle=build/app/outputs/bundle/release/app-release-unsigned.aab
 ```
+
+`bundletool` is not an app dependency. The RC audit used version 1.18.1 resolved
+from the existing Gradle cache; the official shaded jar can also be downloaded
+from the `google/bundletool` GitHub releases page. A plain library jar from the
+Gradle cache needs its declared dependencies on the classpath and does not have
+a main manifest.
 
 Expected result: no `android.permission.INTERNET`, no broad storage permission,
 no unexpected exported component and no unrelated service. A missing release

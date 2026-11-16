@@ -108,15 +108,17 @@ manifest composition only, and the default release path remains fail-closed.
 
 - Flutter SDK matching `pubspec.yaml` (this project was built with Flutter
   3.47.9 / Dart 3.13.7).
-- JDK 17 or 21. This repository was built with JDK 17.0.20.1, selected through
-  `flutter config --jdk-dir`. Gradle 8.14's embedded Kotlin DSL does not support
-  JDK 25, so do not point `JAVA_HOME` at a JDK 25 installation.
-- Android SDK with the platform/build-tools required by the Flutter SDK.
+- JDK 17 or 21. This repository was built with JDK 21.0.8 (Temurin), Gradle 8.14,
+  Android Gradle Plugin 8.11.1 and Kotlin 2.2.20. Gradle 8.14's embedded Kotlin
+  DSL does not support JDK 25, so do not point `JAVA_HOME` at a JDK 25
+  installation.
+- Android SDK with the platform/build-tools required by the Flutter SDK. The RC
+  audit used build-tools 36.0.0 and `targetSdkVersion=36`.
 - Enough memory for Gradle. This repository lowers the daemon heap to 1.5 GB
   because a 4 GB heap was terminated on a 4 GB build host.
 
-```powershell
-flutter config --jdk-dir=/usr/lib/jvm/java-17-openjdk-amd64
+```bash
+flutter config --jdk-dir=/usr/lib/jvm/java-21-openjdk-amd64
 flutter --version
 flutter pub get
 flutter doctor -v
@@ -129,22 +131,24 @@ by Flutter and is not part of the release artifact.
 
 Run from the repository root:
 
-```powershell
-flutter analyze
-flutter test
+```bash
+flutter analyze --no-pub
+flutter test --no-pub
 ```
 
-The 1.4 automated baseline is **247 tests**: the original 134, the v1.2 backup,
-annotation-export, display, settings-envelope and text-scaling tests, the v1.3
-navigation, Back, shell-state, router-recovery, system-intent, launcher and
-drawer tests, and the v1.4 Home-title, settings-write, note-draft, app-ordering,
-palette-contrast, picker-policy and EPUB async/probe tests. All 247 passed in the
-final v1.4 run; the final report records the exact result. Do not copy an old
-count.
+The 1.4 RC automated baseline is **254 tests**: the original 134, the v1.2
+backup, annotation-export, display, settings-envelope and text-scaling tests, the
+v1.3 navigation, Back, shell-state, router-recovery, system-intent, launcher and
+drawer tests, the v1.4 Home-title, settings-write, note-draft, app-ordering,
+palette-contrast, picker-policy and EPUB async/probe tests, and the RC-1
+abandoned-`.part` cleanup, EPUB background-failure and in-app privacy tests. All
+254 passed in the final RC run; the engineering report records the exact result.
+Do not copy an old count.
 
 GitHub Actions runs `dart format --set-exit-if-changed`, `flutter analyze`, the
 full test suite and a debug APK build on pushes to `main` and on pull requests.
-CI is a regression gate, not a substitute for the manual device checklist.
+Remote run `43714869648` passed on commit `8b2e7a7`. CI is a regression gate, not
+a substitute for the manual device checklist.
 
 Database tests use the real SQLite engine (`sqflite_common_ffi`), not a fake.
 Device-only checks remain in `docs/manual-testing.md` and are not converted to
@@ -175,10 +179,11 @@ build/app/outputs/flutter-apk/app-x86_64-release.apk
 build/app/outputs/bundle/release/app-release.aab
 ```
 
-An unsigned analysis build is written to
-`build/app/outputs/flutter-apk/app-release.apk`; rename it to
-`app-release-unsigned.apk` before recording it. A signed build uses the same
-`app-release.apk` name, so the rename is the only reliable distinction on disk.
+An unsigned analysis build is written to the same names; rename the universal APK
+to `app-release-unsigned.apk` and the bundle to `app-release-unsigned.aab` before
+recording them. The split-ABI APKs also need `-unsigned` in their names. A signed
+build uses the plain names, so the rename is the only reliable distinction on
+disk.
 
 If signing is not configured, these commands must fail closed. In that case the
 honest result is "signed release artifacts not produced" and the report must say
@@ -208,28 +213,33 @@ Get-Content build\app\intermediates\merged_manifests\release\AndroidManifest.xml
 
 APK badging and permissions:
 
-```powershell
-$buildTools = Get-ChildItem "$env:ANDROID_HOME\build-tools" -Directory |
-  Sort-Object Name -Descending | Select-Object -First 1
-& "$($buildTools.FullName)\aapt.exe" dump badging build\app\outputs\flutter-apk\app-release.apk
-& "$($buildTools.FullName)\aapt.exe" dump permissions build\app\outputs\flutter-apk\app-release.apk
+```bash
+"$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging \
+  build/app/outputs/flutter-apk/app-release-unsigned.apk
 ```
 
 Signature:
 
-```powershell
-& "$($buildTools.FullName)\apksigner.bat" verify --verbose --print-certs `
-  build\app\outputs\flutter-apk\app-release.apk
+```bash
+"$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs \
+  build/app/outputs/flutter-apk/app-release-unsigned.apk
 ```
 
-AAB manifest (the bundle is a ZIP; extract the base manifest or use the bundle
-tool):
+AAB manifest and validation (the bundle is a ZIP and its manifest is protobuf;
+do not use `aapt2 dump xmltree` on it):
 
-```powershell
-& "$($buildTools.FullName)\aapt2.exe" dump xmltree `
-  build\app\outputs\bundle\release\app-release.aab `
-  --file base/manifest/AndroidManifest.xml
+```bash
+java -cp bundletool.jar com.android.tools.build.bundletool.BundleToolMain \
+  dump manifest --bundle=build/app/outputs/bundle/release/app-release-unsigned.aab
+
+java -cp bundletool.jar com.android.tools.build.bundletool.BundleToolMain \
+  validate --bundle=build/app/outputs/bundle/release/app-release-unsigned.aab
 ```
+
+`bundletool` is not an app dependency. The RC audit used version 1.18.1 resolved
+from the existing Gradle cache; the official shaded jar is available from the
+`google/bundletool` GitHub releases page. The plain library jar in the Gradle
+cache needs its declared dependencies on the classpath and has no main manifest.
 
 Expected:
 
@@ -272,28 +282,40 @@ The AAB lets Play split by ABI and screen density; it is not directly installed.
 ## Release checklist
 
 1. Version and build number match in `pubspec.yaml` and `PaperConfig`.
-2. `flutter analyze` is clean.
-3. Full `flutter test` passes; exact count recorded.
-4. New v1.4 Home-title, note-draft, app-ordering, palette, picker and EPUB
-   async/probe tests pass, alongside the v1.3 navigation/launcher and v1.2
-   backup/export/display/settings tests.
+2. `flutter analyze --no-pub` is clean.
+3. Full `flutter test --no-pub` passes; exact count recorded.
+4. New v1.4 Home-title, note-draft, app-ordering, palette, picker, EPUB
+   async/probe, RC-1 cleanup/isolate and privacy tests pass, alongside the v1.3
+   navigation/launcher and v1.2 backup/export/display/settings tests.
 5. `flutter build apk --release` succeeds with user-owned credentials.
 6. `flutter build apk --release --split-per-abi` succeeds.
 7. `flutter build appbundle --release` succeeds.
-8. Merged release manifest audited with the commands above.
-9. APK signatures verified; the certificate is the owner's, not the debug key.
-10. Artifact sizes and SHA-256 recorded.
-11. `docs/manual-testing.md` updated with device results and explicit statuses.
-12. Known bugs and unverified paths listed in the final report.
-13. Release notes do not claim device validation that did not happen.
+8. Merged release manifest audited with the commands above; confirm package,
+   `versionCode=5`, `versionName=1.4.0`, `minSdk=24`, `targetSdk=36`, no
+   `INTERNET` and no broad storage permission.
+9. AAB validated with `bundletool validate` and its manifest decoded with
+   `bundletool dump manifest`.
+10. APK signatures verified; the certificate is the owner's, not the debug key.
+11. Artifact sizes and SHA-256 recorded.
+12. `docs/manual-testing.md` updated with device results and explicit statuses.
+13. Privacy policy has a verified developer contact and a public HTTPS URL that
+    loads without authentication; the Play listing uses that exact URL.
+14. Play Console Data Safety, ads, content rating, target audience and testing
+    track are completed by the owner.
+15. Known bugs and unverified paths listed in the final report.
+16. Release notes do not claim device validation that did not happen.
 
 ## Manual testing gate
 
 Compiling and passing unit/widget tests is not Android validation. Before a
 public release, run all cases in `docs/manual-testing.md` on at least one physical
 Android device, including the v1.4 Home title, draft notes, unified app ordering,
-Ink palette and EPUB import/open path, plus the v1.3 Back hierarchy, HOME-role
-selection, warm intents, duplicate tasks, process-death recovery, SAF
-save/restore, native PDF, EPUB selection, keep-awake and E-Ink appearance. No
-device was attached for the v1.4 verification, so those rows remain "Not run";
-the partial v1.3 OnePlus 6T run is historical evidence only.
+Ink palette and EPUB import/open path, the RC-1 privacy sheet and abandoned-import
+cleanup, plus the v1.3 Back hierarchy, HOME-role selection, warm intents,
+duplicate tasks, process-death recovery, SAF save/restore, native PDF, EPUB
+selection, keep-awake and E-Ink appearance. No device was attached for the v1.4
+or RC-1 verification, so rows 49–62 remain "Not run"; the partial v1.3 OnePlus 6T
+run is historical evidence only.
+
+The current RC assessment, artifact hashes and exact owner actions are in
+`docs/release/paperos-1.4-rc-readiness.md`.

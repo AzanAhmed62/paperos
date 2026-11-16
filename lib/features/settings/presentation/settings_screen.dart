@@ -875,6 +875,12 @@ class _AboutSection extends StatelessWidget {
               'schema v${PaperConfig.databaseVersion}',
         ),
         const PaperRule(inset: PaperSpace.gutter),
+        PaperSettingRow(
+          label: 'Privacy',
+          subtitle: 'What PaperOS stores, and what it never sends.',
+          onTap: () => _showPrivacy(context),
+        ),
+        const PaperRule(inset: PaperSpace.gutter),
         const PaperSettingRow(
           label: 'Reading faces',
           subtitle:
@@ -882,6 +888,151 @@ class _AboutSection extends StatelessWidget {
               'app so the reader looks the same offline.',
         ),
       ],
+    );
+  }
+
+  void _showPrivacy(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      sheetAnimationStyle: paperModalAnimationStyle(context),
+      isScrollControlled: true,
+      backgroundColor: paperPalette(context).canvas,
+      barrierColor: paperPalette(context).ink.withValues(alpha: 0.32),
+      shape: const RoundedRectangleBorder(),
+      builder: (BuildContext sheetContext) => const _PrivacySheet(),
+    );
+  }
+}
+
+/// A short, self-contained privacy statement.
+///
+/// It deliberately avoids a URL: the public policy page and developer contact
+/// are publication blockers recorded in `docs/privacy-policy.md`. This sheet
+/// states the verified behaviour without inventing either.
+class _PrivacySheet extends StatelessWidget {
+  const _PrivacySheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final PaperTypography type = PaperTypography.of(context);
+    return SafeArea(
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.82,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                PaperSpace.gutter,
+                PaperSpace.lg,
+                PaperSpace.gutter,
+                PaperSpace.sm,
+              ),
+              child: Row(
+                children: <Widget>[
+                  Expanded(child: Text('Privacy', style: type.heading)),
+                  PaperButton(
+                    label: 'Done',
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+            const PaperRule(strong: true),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                padding: const EdgeInsets.fromLTRB(
+                  PaperSpace.gutter,
+                  PaperSpace.md,
+                  PaperSpace.gutter,
+                  PaperSpace.xl,
+                ),
+                children: const <Widget>[
+                  _PrivacyParagraph(
+                    title: 'On this device',
+                    body:
+                        'PaperOS keeps your library, reading progress, '
+                        'bookmarks, annotations, notes, tasks and settings in '
+                        'private app storage on this device.',
+                  ),
+                  _PrivacyParagraph(
+                    title: 'No network, no account',
+                    body:
+                        'The release build has no network permission and no '
+                        'account system. PaperOS contains no analytics, '
+                        'advertising, telemetry or crash-reporting service. '
+                        'Debug builds add network access only for the Flutter '
+                        'development tool.',
+                  ),
+                  _PrivacyParagraph(
+                    title: 'Documents you choose',
+                    body:
+                        'PaperOS reads a document only when you pick it with '
+                        'the Android document picker, or a folder you grant in '
+                        'Files. It copies the document into private app '
+                        'storage; the original stays where it was.',
+                  ),
+                  _PrivacyParagraph(
+                    title: 'The app drawer',
+                    body:
+                        'PaperOS asks Android for launchable app names, icons '
+                        'and launch information so the drawer can open them. '
+                        'It does not read other apps’ data or request broad '
+                        'package access.',
+                  ),
+                  _PrivacyParagraph(
+                    title: 'Backups are not encrypted',
+                    body:
+                        'A PaperOS backup is a plain ZIP file. It contains '
+                        'books, covers, reading progress, bookmarks, '
+                        'annotations, notes, tasks and settings. It is not '
+                        'encrypted or digitally signed, so anyone who can read '
+                        'the file can read its contents. Store it somewhere '
+                        'you trust.',
+                  ),
+                  _PrivacyParagraph(
+                    title: 'Deleting your data',
+                    body:
+                        'Settings → Storage → Remove every document deletes '
+                        'the library copies and reading data. Notes and tasks '
+                        'can be deleted individually. Uninstalling PaperOS '
+                        'removes its private storage. Backups and files you '
+                        'saved elsewhere are not deleted by uninstalling.',
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PrivacyParagraph extends StatelessWidget {
+  const _PrivacyParagraph({required this.title, required this.body});
+
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    final PaperTypography type = PaperTypography.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: PaperSpace.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(title, style: type.body),
+          const SizedBox(height: PaperSpace.xs),
+          Text(body, style: type.caption),
+        ],
+      ),
     );
   }
 }

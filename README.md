@@ -49,12 +49,14 @@ Current version: **1.4.0+5** (`dev.paperos.app`, schema version 2).
   isolate when the reader opens the book. Parses share one serialised queue so
   two large books cannot expand at once. Import copies and hashes the source in
   one pass to a `.part` file, renames only a complete copy, and cleans up a
-  duplicate after fingerprint detection. The picker offers only formats this
-  build can actually read.
-- **Release engineering.** 247 automated tests, a GitHub Actions CI workflow
-  for format/analyze/test plus a debug APK build, and this v1.4 engineering
-  report. No new dependencies, permissions, cloud services or navigation
-  frameworks were added.
+  duplicate after fingerprint detection. Startup maintenance removes abandoned
+  direct `library/*.part` files older than one day. The picker offers only
+  formats this build can actually read.
+- **Release engineering.** 254 automated tests, a GitHub Actions CI workflow
+  for format/analyze/test plus a debug APK build, an in-app privacy statement,
+  a privacy-policy draft, a Play Store preparation checklist and this v1.4
+  engineering report. No new dependencies, permissions, cloud services or
+  navigation frameworks were added.
 
 ## What was new in 1.3
 
@@ -232,8 +234,8 @@ the shipped code, not that every visual detail was inspected on hardware.
 | Note draft-first lifecycle | Verified | Widget tests cover untouched and whitespace-only drafts writing no row, title-only and body-only insertion, one-row updates, rapid edits persisting the latest revision, a delete racing a pending insert leaving no orphan, and a failed first save keeping the text and blocking Back. |
 | Library, bookmark, and annotation persistence | Verified | Repository tests run against the real SQLite engine. |
 | Schema v1 to v2 migration | Verified | A populated v1 database is upgraded and its documents, progress, bookmarks, notes, and tasks are read back. |
-| EPUB 2/3 parsing, async isolation and malformed-archive safety | Verified | Unit tests cover EPUB 2 NCX, EPUB 3 navigation, nested contents, metadata, unsafe paths, declared unbounded entries, non-EPUB input, empty spines, image-only chapters, the metadata-only probe, the serialised background queue, queue recovery after a malformed book, and a missing file. |
-| EPUB import, metadata, cover, duplicate recognition, stale-row relink | Verified | Repository tests exercise the metadata probe, same-source re-import, fingerprint dedup, revived private copies, preservation of user data, a malformed EPUB kept as unreadable, empty-file refusal, and no `.part` residue after a successful copy. |
+| EPUB 2/3 parsing, async isolation and malformed-archive safety | Verified | Unit tests cover EPUB 2 NCX, EPUB 3 navigation, nested contents, metadata, unsafe paths, declared unbounded entries, non-EPUB input, empty spines, image-only chapters, the metadata-only probe, the serialised background queue, queue recovery after a malformed book, a missing file, and the background-failure policy. Only an unsupported-isolate platform falls back to the caller. |
+| EPUB import, metadata, cover, duplicate recognition, stale-row relink | Verified | Repository tests exercise the metadata probe, same-source re-import, fingerprint dedup, revived private copies, preservation of user data, a malformed EPUB kept as unreadable, empty-file refusal, and no `.part` residue after a successful copy. Storage tests cover startup removal of direct `library/*.part` files older than one day while preserving fresh, completed and nested files. |
 | EPUB pagination, locator restore, search, annotation ranges | Verified | Backend and reader-session tests cover typography changes, scroll/paged switching, orphan recovery, and malformed-book errors. |
 | EPUB reader chrome and library filters | Verified | Widget tests open the real reader, read the page, exercise every filter, search by author, and sort through the menu. |
 | Text pagination | Verified | Unit tests cover empty, short, long, lazy, and fraction cases. |
@@ -251,9 +253,10 @@ the shipped code, not that every visual detail was inspected on hardware.
 | Import through the system picker | Implemented but runtime-unverified | Needs a real Android picker and provider. |
 | Home-role request, app discovery, app launch | Partially verified on device | The role dialog appears on Android 11 after the `startActivityForResult` fix, but the role was cancelled. The drawer enumerated and launched real apps. Confirming the role and replacing the launcher remain device checks. |
 | Keep-screen-on | Implemented but runtime-unverified | Platform channel compiles; behaviour needs Android. |
-| Release permissions | Verified on an unsigned analysis artifact | The merged v1.4 release manifest and APK contain no `INTERNET` and no storage permission. The only permission is the app-defined signature permission `dev.paperos.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`. The exported VIEW filter advertises PDF, EPUB and plain text. The one exported receiver is AndroidX's profile installer, guarded by `android.permission.DUMP`. See `docs/v1.4-engineering-report.md`. |
-| Production signing | Blocked | No owner keystore credentials were supplied. Release tasks fail closed rather than debug-sign; only unsigned analysis APKs were produced. |
-| Physical launcher validation | Partially run (v1.3 only) | Core launcher, app-drawer, warm `am start` and Back paths passed on a OnePlus 6T (Android 11). No v1.4 device run was performed. Role confirmation, the system Home button while the role is held, real-launcher warm intents, OEM duplicate tasks, process death while reading, predictive Back, SAF folders, `ACTION_VIEW` and the native v1.2 paths remain device checks. |
+| Release permissions | Verified on an unsigned analysis artifact | The merged release manifest and APK report `minSdk=24`, `targetSdk=36`, `versionCode=5`, `versionName=1.4.0`, no `INTERNET` and no storage permission. The only permission is the app-defined signature permission `dev.paperos.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`. The exported VIEW filter advertises PDF, EPUB and plain text. The one exported receiver is AndroidX's profile installer, guarded by `android.permission.DUMP`. The AAB manifest was decoded with `bundletool 1.18.1` and `bundletool validate` passed. See `docs/v1.4-engineering-report.md`. |
+| Privacy statement and policy draft | Partial | Settings → About → Privacy is widget-tested and avoids placeholder URLs or contacts. `docs/privacy-policy.md` and `.html` describe the shipped behaviour, but publication is blocked by a missing verified developer contact and public HTTPS URL. |
+| Production signing | Blocked | No owner keystore credentials were supplied. Release tasks fail closed rather than debug-sign; only unsigned analysis APK/AAB artifacts were produced. |
+| Physical launcher validation | Partially run (v1.3 only) | Core launcher, app-drawer, warm `am start` and Back paths passed on a OnePlus 6T (Android 11). No v1.4 or RC-1 device run was performed. Role confirmation, the system Home button while the role is held, real-launcher warm intents, OEM duplicate tasks, process death while reading, predictive Back, SAF folders, `ACTION_VIEW`, the native v1.2 paths, the privacy sheet, abandoned-import cleanup and internal-track install remain device checks. |
 | Cloud sync, accounts, analytics | Not implemented | Explicitly out of scope. |
 | PDF highlights and annotations | Not implemented | The native PDF path renders bitmaps and does not expose selectable text. |
 | Backup encryption | Not implemented | Backups are plain ZIPs; see `security-and-privacy.md`. |
@@ -309,19 +312,21 @@ build is possible only with `-Ppaperos.allowUnsignedRelease=true` and is not
 installable or distributable. The full procedure, manifest audit, and signature
 verification commands are in [`docs/release-process.md`](docs/release-process.md).
 
-The automated suite contains **247 tests**: the original 134, the v1.2 backup,
+The automated suite contains **254 tests**: the original 134, the v1.2 backup,
 annotation-export, display-profile, settings-envelope and text-scaling tests, the
 v1.3 navigation, Back, shell-state, router-recovery, system-intent, launcher and
-drawer tests, and the v1.4 Home-title, settings-write, note-draft, app-ordering,
-palette-contrast, picker-policy and EPUB async/probe tests. All 247 pass with
-`flutter test`:
+drawer tests, the v1.4 Home-title, settings-write, note-draft, app-ordering,
+palette-contrast, picker-policy and EPUB async/probe tests, and the RC-1
+abandoned-`.part` cleanup, EPUB background-failure and in-app privacy tests. All
+254 pass with `flutter test --no-pub`:
 
 - `test/unit/` — EPUB parsing, async isolation, metadata probing and archive
-  safety; EPUB pagination/locators; text pagination; PDF backend
-  lifetime/navigation; file-browser channel mapping; annotation export; display
-  policy; Back policy; router recovery; system intents; launcher service and
-  providers; app-catalog ordering; settings-controller writes; palette contrast;
-  and document-format policy.
+  safety; EPUB pagination/locators; EPUB background-failure policy; text
+  pagination; PDF backend lifetime/navigation; file-browser channel mapping;
+  annotation export; display policy; Back policy; router recovery; system
+  intents; launcher service and providers; app-catalog ordering;
+  settings-controller writes; palette contrast; document-format policy; and
+  abandoned-import cleanup.
 - `test/data/` — repositories, filters/sorts, import deduplication and atomic
   copy, annotations, bookmark locators, settings v3 with v1/v2 compatibility, the
   real v1-to-v2 SQLite migration, and full backup/restore against real SQLite.
@@ -329,12 +334,14 @@ palette-contrast, picker-policy and EPUB async/probe tests. All 247 pass with
   persistence, and malformed-book recovery.
 - `test/widget/` — the real app shell, Back hierarchy, app drawer, Home launcher
   surface and custom title, reader chrome, EPUB library filters and sorting,
-  Tasks, Files, the draft-first note editor, the search field, and task-result day
-  selection in search.
+  Tasks, Files, the draft-first note editor, the search field, task-result day
+  selection in search, and the Settings privacy sheet.
 
 GitHub Actions runs formatting, analysis, the full test suite and a debug APK
 build on pushes to `main` and on pull requests; see
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml). Remote run
+`43714869648` passed on commit `8b2e7a7`. The uncommitted RC-1 changes have not
+run remotely.
 
 A physical OnePlus 6T (`ONEPLUS A6010`, Android 11 / API 30) was used for a
 partial v1.3 runtime run: install and launch, Library/Back, app-drawer
@@ -358,6 +365,12 @@ Design notes:
 - [`docs/v1.4-engineering-report.md`](docs/v1.4-engineering-report.md) — the
   full v1.4 engineering report, including verification status, artifact hashes,
   release gates and blocked items.
+- [`docs/release/paperos-1.4-rc-readiness.md`](docs/release/paperos-1.4-rc-readiness.md)
+  — the RC assessment, exact artifact evidence, blockers and next step.
+- [`docs/privacy-policy.md`](docs/privacy-policy.md) — the user-facing privacy
+  policy draft, including its publication blockers.
+- [`docs/play-store-release-checklist.md`](docs/play-store-release-checklist.md)
+  — Play Store listing, Data Safety, signing and testing-track preparation.
 - [`docs/v1.3-engineering-report.md`](docs/v1.3-engineering-report.md) — the
   full v1.3 engineering report, including verification status, build hashes,
   release gates and blocked items.
@@ -501,9 +514,21 @@ visibility without adding a second visual language.
 - Home and Notes share the draft editor. If the process is killed before the
   first meaningful autosave, an untouched draft is intentionally lost; there is
   no hidden row to recover.
-- EPUB parsing runs on a background isolate when the platform supports it and
-  falls back to the calling isolate otherwise. The serialised queue bounds
-  concurrency, but it does not make a 64 MB archive parse instantly.
+- EPUB parsing runs on a background isolate when the platform supports it. Only
+  an `UnsupportedError` falls back to the calling isolate; any other isolate
+  failure is shown as a recoverable error instead of silently moving a large
+  parse onto the frame loop. The serialised queue bounds concurrency, but it does
+  not make a 64 MB archive parse instantly.
+- An import interrupted by process death can leave a direct `library/*.part`
+  file. Startup maintenance removes those files once they are more than one day
+  old; a fresh partial is assumed to belong to an import that is still running.
+  Completed library files are never touched.
+- The privacy policy is a repository draft. No verified developer contact or
+  public HTTPS hosting URL has been supplied, so it cannot be published or
+  entered in Play Console yet. Do not use a placeholder.
+- The RC release APK and AAB are unsigned analysis artifacts. They prove size,
+  composition and manifest state only; they are not installable, uploadable or
+  distributable.
 - Back on Home is consumed by design. PaperOS does not offer a "Back exits the
   launcher" mode.
 - Backups are unencrypted and unsigned. They contain books, notes and reading

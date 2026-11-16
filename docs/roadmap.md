@@ -25,8 +25,9 @@ add unrelated product surfaces.
 - EPUB performance: metadata-only probe at import, full parse on a background
   isolate with a serialised queue, reader integration, one-pass copy plus SHA-256
   to a `.part` file, and a picker limited to readable formats.
-- 247 automated tests, clean format/analyze, GitHub Actions CI, and v1.4
-  engineering/manual documentation.
+- 254 automated tests, clean format/analyze, GitHub Actions CI, abandoned import
+  cleanup, an in-app privacy statement and v1.4 engineering/manual
+  documentation.
 
 ## Completed in v1.3
 
