@@ -266,7 +266,7 @@ The navigation contract is covered at three levels:
 | `test/widget/app_shell_test.dart` | The five destinations boot and branch state survives switching. |
 | `test/unit/system_intent_test.dart` | HOME/LAUNCHER reset, VIEW drains the document, cold/warm delivery, duplicate delivery. |
 | `test/widget/home_launcher_test.dart` | Home quick actions, pinned apps, role status, date and density preferences. |
-| `test/widget/apps_screen_test.dart` | Drawer recents/favourites, launch, pin/unpin, refresh, restricted and empty states, icon preference. |
+| `test/widget/apps_screen_test.dart` | Drawer recents/favourites, launch, pin/unpin, refresh, neutral empty state, pinned-first unified ordering, icon preference. |
 
 The widget tests simulate Android Back with
 `WidgetsBinding.instance.handlePopRoute()`, which is the same entry point the

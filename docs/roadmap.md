@@ -1,8 +1,33 @@
 # Roadmap
 
-This roadmap records the state after v1.3 and keeps later work honest about the
+This roadmap records the state after v1.4 and keeps later work honest about the
 constraints that shaped the app. It is not a promise of dates or an invitation to
 add unrelated product surfaces.
+
+## Completed in v1.4
+
+- Custom Paper Home title stored in settings v3, with trimming, empty fallback,
+  a 32-code-point Unicode-safe cap, reset, debounced persistence and backup
+  round-trip coverage.
+- Home de-duplication: one Search/Apps entry point in the four-action row, no
+  duplicate header icons or pinned-section Apps link, no separate launcher
+  app-drawer row, and a HOME-role setup notice only when PaperOS is not default.
+- Draft-first notes shared by Home and Notes: no row for untouched or
+  whitespace-only drafts, one-row title-only/body-only saves, serialised writes,
+  flush on Back, failed-save text preservation, and delete-versus-insert race
+  protection.
+- One canonical app order: pinned first in pin order, then a unified
+  case-insensitive A–Z list including enabled system apps, with package dedupe and
+  deterministic label/package/activity tie-breaks. The empty state no longer
+  claims an unproven restriction.
+- Ink reader refinement: charcoal/off-white base, dedicated highlight and note
+  fills, hairline reader-bar rules, and unchanged PDF bitmap colours.
+- EPUB performance: metadata-only probe at import, full parse on a background
+  isolate with a serialised queue, reader integration, one-pass copy plus SHA-256
+  to a `.part` file, and a picker limited to readable formats.
+- 254 automated tests, clean format/analyze, GitHub Actions CI, abandoned import
+  cleanup, an in-app privacy statement and v1.4 engineering/manual
+  documentation.
 
 ## Completed in v1.3
 
@@ -109,6 +134,8 @@ behaviour:
 
 - install the debug APK on a physical Android device;
 - run the manual checklist in [`manual-testing.md`](manual-testing.md);
+- verify the v1.4 custom Home title, draft-note lifecycle, unified app ordering,
+  Ink palette and EPUB import/open responsiveness;
 - select PaperOS as Home and walk the exact Back hierarchy, including Home
   consuming Back;
 - verify warm HOME/LAUNCHER and VIEW intents, duplicate tasks, and process
@@ -157,7 +184,8 @@ These are local-only and must not become cloud sync.
 - TalkBack labels for reader chrome, search results, TOC rows, and annotations;
 - large-text and display-scaling audit;
 - reduced-motion alternatives for chrome animation;
-- contrast verification across the monochrome paper themes.
+- device verification of the v1.4 contrast tokens across the monochrome paper
+  themes, including the Ink highlight and note fills.
 
 ### 6. Platform maintenance
 

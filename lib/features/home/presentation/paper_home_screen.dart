@@ -17,8 +17,6 @@ import '../../../features/library/application/library_providers.dart';
 import '../../../features/library/data/library_service.dart';
 import '../../../features/library/domain/document.dart';
 import '../../../features/library/domain/library_models.dart';
-import '../../../features/notes/application/notes_providers.dart';
-import '../../../features/notes/domain/note.dart';
 import '../../../features/settings/application/settings_controller.dart';
 import '../../../features/settings/domain/app_settings.dart';
 import '../../../features/tasks/application/tasks_providers.dart';
@@ -47,7 +45,7 @@ class PaperHomeScreen extends ConsumerWidget {
         child: ListView(
           padding: const EdgeInsets.only(bottom: PaperSpace.xl),
           children: <Widget>[
-            _HomeHeader(showSearch: home.shows(HomeSection.search)),
+            _HomeHeader(displayName: home.displayName),
             if (home.showClock)
               _ClockBlock(showDate: home.showDate, density: home.density),
             _QuickActions(showSearch: home.shows(HomeSection.search)),
@@ -56,7 +54,7 @@ class PaperHomeScreen extends ConsumerWidget {
             if (home.shows(HomeSection.today)) const _TodaySection(),
             if (home.shows(HomeSection.recent)) const _RecentDocumentsSection(),
             const _FavoriteAppsSection(),
-            const _LauncherEntry(),
+            const _LauncherSetupNotice(),
           ],
         ),
       ),
@@ -65,37 +63,29 @@ class PaperHomeScreen extends ConsumerWidget {
 }
 
 class _HomeHeader extends StatelessWidget {
-  const _HomeHeader({required this.showSearch});
+  const _HomeHeader({required this.displayName});
 
-  final bool showSearch;
+  final String displayName;
 
   @override
   Widget build(BuildContext context) {
     final PaperTypography type = PaperTypography.of(context);
 
+    // Search and Apps are deliberately not repeated here: the four-action row
+    // immediately below is the single primary entry point for both. A header
+    // icon would make the same action reachable twice within one thumb reach.
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         PaperSpace.gutter,
         PaperSpace.md,
-        PaperSpace.sm,
+        PaperSpace.gutter,
         0,
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Expanded(child: Text('PaperOS', style: type.screenTitle)),
-          if (showSearch)
-            IconButton(
-              onPressed: () => context.push(Routes.search),
-              icon: const Icon(Icons.search),
-              tooltip: 'Search',
-            ),
-          IconButton(
-            onPressed: () => context.push(Routes.apps),
-            icon: const Icon(Icons.grid_view_outlined),
-            tooltip: 'Apps',
-          ),
-        ],
+      child: Text(
+        displayName,
+        style: type.screenTitle,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
       ),
     );
   }
@@ -243,7 +233,7 @@ class _QuickActions extends ConsumerWidget {
                 child: _QuickAction(
                   icon: Icons.note_add_outlined,
                   label: 'New note',
-                  onTap: () => _newNote(context, ref),
+                  onTap: () => _newNote(context),
                 ),
               ),
               _QuickDivider(palette: palette),
@@ -261,15 +251,10 @@ class _QuickActions extends ConsumerWidget {
     );
   }
 
-  Future<void> _newNote(BuildContext context, WidgetRef ref) async {
-    try {
-      final Note note = await ref.read(noteActionsProvider).create();
-      if (!context.mounted) return;
-      context.push(Routes.noteEditorPath(note.id));
-    } on PaperException catch (error) {
-      if (!context.mounted) return;
-      PaperToast.show(context, error.message, icon: Icons.error_outline);
-    }
+  void _newNote(BuildContext context) {
+    // The editor owns the draft-first lifecycle: an untouched new note never
+    // reaches the database. Both Home and Notes use the same route.
+    context.push(Routes.newNote);
   }
 
   Future<void> _newTask(BuildContext context, WidgetRef ref) async {
@@ -360,8 +345,6 @@ class _FavoriteAppsSection extends ConsumerWidget {
 
     return _SectionShell(
       label: 'Pinned',
-      actionLabel: 'Apps',
-      onAction: () => context.push(Routes.apps),
       child: Wrap(
         spacing: PaperSpace.lg,
         runSpacing: PaperSpace.md,
@@ -729,19 +712,16 @@ class _RecentDocumentsSection extends ConsumerWidget {
   }
 }
 
-/// The entry point to the app drawer.
+/// A compact, contextual launcher-setup message.
 ///
-/// PaperOS is a launcher before it is an app grid, so this is deliberately the
-/// last element on Paper Home. When PaperOS is not the home app it says so
-/// instead of pretending to be one.
-class _LauncherEntry extends ConsumerWidget {
-  const _LauncherEntry();
+/// PaperOS is a launcher, but Paper Home is not a setup wizard. This block is
+/// shown only while Android reports that PaperOS does not hold the HOME role.
+/// Once the role is held it disappears entirely; Settings remains the
+/// authoritative place for launcher configuration. The app drawer itself has
+/// exactly one Home entry point: the Apps action in the four-action row.
+class _LauncherSetupNotice extends ConsumerWidget {
+  const _LauncherSetupNotice();
 
-  /// Runs the documented Android HOME-role request.
-  ///
-  /// Android 10+ can grant the role from a dialog; earlier releases cannot, so
-  /// the flow falls back to the system "default home app" screen. The user is
-  /// told which one happened rather than being left with no feedback.
   Future<void> _requestHomeRole(BuildContext context, WidgetRef ref) async {
     final LauncherActions actions = ref.read(launcherActionsProvider);
     try {
@@ -777,20 +757,15 @@ class _LauncherEntry extends ConsumerWidget {
     }
   }
 
-  Future<void> _openHomeSettings(BuildContext context, WidgetRef ref) async {
-    try {
-      await ref.read(launcherActionsProvider).openHomeSettings();
-    } on PaperException catch (error) {
-      if (!context.mounted) return;
-      PaperToast.show(context, error.message, icon: Icons.info_outline);
-    }
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final AsyncValue<bool> role = ref.watch(homeRoleProvider);
+    // Loading or a failed role query is not evidence that setup is needed.
+    // Showing nothing avoids a false "not your home app" flash on every start.
+    if (role.value != false) return const SizedBox.shrink();
+
     final PaperTypography type = PaperTypography.of(context);
     final PaperPalette palette = paperPalette(context);
-    final AsyncValue<bool> role = ref.watch(homeRoleProvider);
     final HomeDensity density = ref.watch(
       settingsProvider.select((AppSettings settings) => settings.home.density),
     );
@@ -802,73 +777,35 @@ class _LauncherEntry extends ConsumerWidget {
         PaperSpace.gutter,
         PaperSpace.xl,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          const PaperSectionLabel('Launcher'),
-          const SizedBox(height: PaperSpace.md),
-          InkWell(
-            onTap: () => context.push(Routes.apps),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: PaperSpace.sm),
-              child: Row(
-                children: <Widget>[
-                  Icon(Icons.apps_outlined, size: 22, color: palette.inkMuted),
-                  const SizedBox(width: PaperSpace.md),
-                  Expanded(
-                    child: Text('Open the app drawer', style: type.body),
-                  ),
-                  Icon(Icons.chevron_right, size: 18, color: palette.inkFaint),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: PaperSpace.sm),
-          role.when(
-            loading: () => const PaperSettingRow(
-              label: 'Home app status',
-              subtitle: 'Checking with Android…',
-            ),
-            error: (Object error, StackTrace stack) => const PaperSettingRow(
-              label: 'Home app status',
-              subtitle:
-                  'Android did not report whether PaperOS is the home app.',
-            ),
-            data: (bool isHome) => Column(
-              children: <Widget>[
-                PaperSettingRow(
-                  label: isHome
-                      ? 'PaperOS is your home app'
-                      : 'PaperOS is not your home app',
-                  subtitle: isHome
-                      ? 'Pressing Home returns to this screen.'
-                      : 'Use PaperOS as the launcher when you press Home.',
-                  trailing: Icon(
-                    isHome ? Icons.check_circle_outline : Icons.info_outline,
-                    size: 20,
-                    color: isHome ? palette.ink : palette.inkMuted,
-                  ),
-                  onTap: isHome ? null : () => _requestHomeRole(context, ref),
+      child: DecoratedBox(
+        decoration: BoxDecoration(border: Border.all(color: palette.rule)),
+        child: Padding(
+          padding: const EdgeInsets.all(PaperSpace.md),
+          child: Row(
+            children: <Widget>[
+              Icon(Icons.home_outlined, size: 20, color: palette.inkMuted),
+              const SizedBox(width: PaperSpace.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text('Make PaperOS your home app', style: type.bodyStrong),
+                    const SizedBox(height: PaperSpace.xs),
+                    Text(
+                      'Pressing Home returns to this screen.',
+                      style: type.caption,
+                    ),
+                  ],
                 ),
-                if (isHome) ...<Widget>[
-                  const PaperRule(inset: PaperSpace.gutter),
-                  PaperSettingRow(
-                    label: 'Home app settings',
-                    subtitle:
-                        'Change the default home app in Android settings.',
-                    onTap: () => _openHomeSettings(context, ref),
-                  ),
-                ],
-              ],
-            ),
+              ),
+              const SizedBox(width: PaperSpace.sm),
+              PaperTextAction(
+                label: 'Set up',
+                onPressed: () => _requestHomeRole(context, ref),
+              ),
+            ],
           ),
-          const PaperRule(inset: PaperSpace.gutter),
-          PaperSettingRow(
-            label: 'Launcher settings',
-            subtitle: 'Icons, recents, pinned apps and Home layout.',
-            onTap: () => context.go(Routes.settings),
-          ),
-        ],
+        ),
       ),
     );
   }

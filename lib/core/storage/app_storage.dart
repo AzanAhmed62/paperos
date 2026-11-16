@@ -137,6 +137,37 @@ class AppStorage {
     return removed;
   }
 
+  /// Removes abandoned import partials from `library/`.
+  ///
+  /// An import writes `<destination>.part` and renames it into place only after
+  /// the copy completes. A process kill during the copy can therefore leave a
+  /// `.part` file that no library row references. Only regular files directly
+  /// inside the library directory whose names end in `.part` and whose
+  /// modification time is older than [maxAge] are removed. A fresh partial is
+  /// assumed to belong to an import that is still running and is never touched.
+  ///
+  /// This never recurses and never touches a completed library file.
+  Future<int> purgeAbandonedImports({
+    Duration maxAge = const Duration(days: 1),
+  }) async {
+    final Directory libraryDir = await library();
+    final DateTime cutoff = DateTime.now().subtract(maxAge);
+    int removed = 0;
+    await for (final FileSystemEntity entity in libraryDir.list()) {
+      if (entity is! File || !entity.path.endsWith('.part')) continue;
+      try {
+        final DateTime modified = await entity.lastModified();
+        if (modified.isBefore(cutoff)) {
+          await entity.delete();
+          removed++;
+        }
+      } on FileSystemException {
+        // Leave anything we cannot judge or remove.
+      }
+    }
+    return removed;
+  }
+
   /// Best-effort cleanup of disposable work data. Called once at startup.
   ///
   /// Staging directories are only removed after a day so a restore that is
@@ -145,6 +176,11 @@ class AppStorage {
   Future<void> cleanupDisposableStorage() async {
     try {
       await purgeTrash();
+    } on Object {
+      // Storage maintenance never blocks startup.
+    }
+    try {
+      await purgeAbandonedImports();
     } on Object {
       // Storage maintenance never blocks startup.
     }

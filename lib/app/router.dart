@@ -27,6 +27,7 @@ abstract final class Routes {
   static const String library = '/library';
   static const String files = '/files';
   static const String notes = '/notes';
+  static const String newNote = '/notes/new';
   static const String noteEditor = '/notes/:noteId';
   static const String tasks = '/tasks';
   static const String settings = '/settings';
@@ -86,6 +87,13 @@ GoRouter createAppRouter() {
           _tab(Routes.notes, const NotesScreen()),
           _tab(Routes.settings, const SettingsScreen()),
         ],
+      ),
+      GoRoute(
+        path: Routes.newNote,
+        parentNavigatorKey: rootNavigatorKey,
+        pageBuilder: (BuildContext context, GoRouterState state) {
+          return _fadePage(context, state, const NoteEditorScreen());
+        },
       ),
       GoRoute(
         path: Routes.noteEditor,

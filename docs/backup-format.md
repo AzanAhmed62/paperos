@@ -177,21 +177,21 @@ This is the same envelope used by the app:
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "appearance": { "...": "..." },
   "reader": { "...": "..." },
   "launcher": { "...": "..." },
-  "home": { "...": "..." },
+  "home": { "displayName": "Quiet Hours" },
   "display": { "profile": "eink" },
   "askOnExit": true
 }
 ```
 
 A legacy document with no `version` key and no `display` section remains
-readable. A present version outside `1..2`, invalid JSON, a section that is not an
+readable. A present version outside `1..3`, invalid JSON, a section that is not an
 object, or a wrong field type aborts the restore; they do not fall back to
 defaults. A missing section is treated as a legacy default so a v1 document
-remains readable.
+remains readable. A missing `home.displayName` resolves to `PaperOS`.
 
 ## Size and entry limits
 
@@ -228,17 +228,17 @@ restore.
   can read the books, notes, settings and reading history inside it. Anyone who
   can rewrite it can produce a different valid archive. See
   `security-and-privacy.md`.
-- No version of PaperOS 1.2 invents encryption or accepts password-protected
+- No version of PaperOS 1.4 invents encryption or accepts password-protected
   ZIPs. An encrypted archive is rejected with an explicit message.
 
 ## Compatibility
 
-PaperOS 1.2 accepts format version 1 and schema version 2. It rejects:
+PaperOS 1.4 accepts format version 1 and schema version 2. It rejects:
 
 - container versions newer than 1;
 - database schema versions other than 2, including a newer schema from a future
   PaperOS release;
-- settings document versions newer than 2;
+- settings document versions newer than 3;
 - any ZIP path or relationship violation described above.
 
 There is no downgrade path. A backup from a future release must be opened with

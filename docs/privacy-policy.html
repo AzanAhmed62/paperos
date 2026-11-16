@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>PaperOS privacy policy</title>
+  <style>
+    :root {
+      --ink: #1c1b18;
+      --muted: #5d5a52;
+      --canvas: #f6f2e9;
+      --rule: #d8d1c3;
+      --panel: #fffdf8;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --ink: #e8e4da;
+        --muted: #b9b3a6;
+        --canvas: #121211;
+        --rule: #3a3833;
+        --panel: #1a1917;
+      }
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--canvas); }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--canvas);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif;
+      font-size: 17px;
+      line-height: 1.65;
+    }
+    main {
+      max-width: 46rem;
+      margin: 0 auto;
+      padding: 3rem 1.25rem 5rem;
+    }
+    h1, h2 {
+      line-height: 1.25;
+      letter-spacing: -0.01em;
+    }
+    h1 { font-size: clamp(1.8rem, 4vw, 2.5rem); margin: 0 0 1rem; }
+    h2 { font-size: 1.25rem; margin: 2.5rem 0 0.75rem; }
+    p, ul { margin: 0 0 1rem; }
+    ul { padding-left: 1.4rem; }
+    li { margin-bottom: 0.45rem; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.9em;
+      background: var(--panel);
+      border: 1px solid var(--rule);
+      border-radius: 3px;
+      padding: 0.08em 0.3em;
+    }
+    .meta {
+      color: var(--muted);
+      font-size: 0.95rem;
+      margin-bottom: 2rem;
+    }
+    .banner {
+      background: var(--panel);
+      border: 1px solid var(--rule);
+      border-left: 4px solid var(--ink);
+      padding: 1rem 1.1rem;
+      margin: 0 0 2rem;
+    }
+    .banner strong { display: block; margin-bottom: 0.35rem; }
+    .short {
+      background: var(--panel);
+      border: 1px solid var(--rule);
+      padding: 1.1rem 1.25rem;
+      margin: 1.5rem 0 2rem;
+    }
+    .short h2 { margin-top: 0; }
+    a { color: inherit; text-underline-offset: 0.18em; }
+    footer {
+      border-top: 1px solid var(--rule);
+      margin-top: 3rem;
+      padding-top: 1rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>PaperOS privacy policy</h1>
+  <p class="meta">
+    <strong>App:</strong> PaperOS (<code>dev.paperos.app</code>)<br>
+    <strong>Version covered:</strong> 1.4.0+5<br>
+    <strong>Effective date:</strong> 16 November 2026
+  </p>
+
+  <div class="banner">
+    <strong>Draft for publication</strong>
+    This policy is not yet hosted at a public URL and does not yet name a
+    developer contact. Both are required before the Google Play listing can be
+    published. See <a href="#publication-status">Publication status</a>.
+  </div>
+
+  <p>
+    PaperOS is a local-first reading environment and an optional Android Home
+    app. This policy explains what the app stores, what it does not collect,
+    and how you can delete it. It describes the behaviour of the release build.
+  </p>
+
+  <div class="short">
+    <h2>The short version</h2>
+    <ul>
+      <li>PaperOS keeps your library, reading progress, notes, tasks and
+        settings on your device.</li>
+      <li>The release build has no network permission, no account, no
+        analytics, no advertising and no cloud sync.</li>
+      <li>PaperOS does not send your documents or reading data to the developer
+        or any third party.</li>
+      <li>Backups are plain ZIP files. They are <strong>not encrypted or
+        digitally signed</strong>. Store them somewhere you trust.</li>
+      <li>Uninstalling PaperOS removes its private app data. Backups and files
+        you saved elsewhere are not removed.</li>
+    </ul>
+  </div>
+
+  <h2>What PaperOS stores on your device</h2>
+  <p>PaperOS stores the following in its private application storage:</p>
+  <ul>
+    <li><strong>Documents you import.</strong> When you choose a PDF, EPUB or
+      plain-text file, PaperOS copies it into its private library folder. The
+      original file stays where it was. PaperOS does not re-read the original
+      after the copy.</li>
+    <li><strong>Covers.</strong> A small cover image extracted from an EPUB may
+      be stored so the library can show it.</li>
+    <li><strong>Library records.</strong> A private SQLite database holds
+      document titles, authors, file names, source references, reading
+      positions, page counts, favourite flags, reading time, bookmarks and
+      annotations.</li>
+    <li><strong>Notes and tasks.</strong> Note titles and bodies, task titles,
+      due dates and completion state are stored in the same private
+      database.</li>
+    <li><strong>Settings.</strong> Appearance, reader typography, display
+      profile, the custom Home title, launcher preferences, and pinned and
+      recent app package names are stored in Android app preferences.
+      Granted-folder references are stored as rows in the same private SQLite
+      database as the library records.</li>
+    <li><strong>Temporary recovery data.</strong> Deleted library files are
+      held in a private trash folder for up to seven days. Restore operations
+      keep up to three private safety snapshots. Abandoned backup staging is
+      removed after one day.</li>
+  </ul>
+  <p>
+    This data stays inside PaperOS' private app storage. Other ordinary apps
+    cannot read it. A rooted device, a debug build, an operating-system backup
+    tool or malware with equivalent privileges may be able to access it.
+    PaperOS does not add its own database or archive encryption in 1.4.
+  </p>
+
+  <h2>Documents you choose</h2>
+  <p>PaperOS uses Android's Storage Access Framework:</p>
+  <ul>
+    <li>You choose a file with the Android document picker, or grant a folder
+      in the Files screen.</li>
+    <li>PaperOS receives access only to what you selected. It does not request
+      broad storage access and does not browse outside folders you granted.</li>
+    <li>The imported copy is what the library opens. If you later move or
+      delete the original, the library copy still works.</li>
+    <li>When another app opens a PDF, EPUB or text file with PaperOS, Android
+      gives PaperOS a one-time grant for that file. PaperOS copies it into its
+      library in the same way.</li>
+  </ul>
+  <p>
+    Removing a granted folder from PaperOS releases that folder reference. It
+    does not delete the folder or its contents.
+  </p>
+
+  <h2>The app drawer</h2>
+  <p>
+    PaperOS can be used as an Android Home app and includes an app drawer. To
+    build the drawer, PaperOS asks Android for activities that respond to the
+    launcher intent (<code>MAIN</code> + <code>LAUNCHER</code>) and for the
+    current Home app. It reads the app's label, package name, activity name,
+    system-app flag and icon so it can display and launch the app.
+  </p>
+  <p>
+    PaperOS does not read other apps' private data, files, accounts or usage
+    history. It does not request the broad <code>QUERY_ALL_PACKAGES</code>
+    permission. The package visibility declarations in its manifest are Android
+    visibility rules, not permissions to read app content. Pinned and recent
+    package names are stored locally as launcher preferences.
+  </p>
+
+  <h2>Network access, accounts, analytics and advertising</h2>
+  <p>The release build of PaperOS:</p>
+  <ul>
+    <li>declares <strong>no <code>INTERNET</code> permission</strong>;</li>
+    <li>has <strong>no account system</strong>, sign-in, cloud sync or remote
+      backup service;</li>
+    <li>contains <strong>no analytics, telemetry, crash-reporting, advertising
+      or attribution SDK</strong>;</li>
+    <li>does not fetch books, covers, fonts or updates from a network;</li>
+    <li>does not sell or share data.</li>
+  </ul>
+  <p>
+    The Android debug build adds the <code>INTERNET</code> permission because
+    the Flutter development tool needs it for debugging and hot reload. Debug
+    builds are not distributed to users.
+  </p>
+  <p>
+    Google Play and Android itself may collect install, device or usage
+    information under their own privacy policies. PaperOS does not control that
+    platform-level collection and does not receive it.
+  </p>
+
+  <h2>Backups</h2>
+  <p>
+    PaperOS can create a <code>.paperosbackup</code> file at a destination you
+    choose through Android's save picker. A backup is an ordinary ZIP archive.
+    It is <strong>not encrypted</strong> and <strong>not digitally
+    signed</strong>. It contains:
+  </p>
+  <ul>
+    <li>the full text of every imported book;</li>
+    <li>covers;</li>
+    <li>the library database contents: documents, reading progress, bookmarks,
+      annotations, notes, tasks and granted-folder references;</li>
+    <li>settings, including the custom Home title, pinned and recent app
+      package names, and display preferences;</li>
+    <li>a manifest with sizes and SHA-256 checksums.</li>
+  </ul>
+  <p>
+    The checksums can detect corruption or casual modification. They do not
+    prove who created the archive and do not make it confidential. Anyone who
+    can read the file can read the books, notes and reading history inside it.
+    Anyone who can modify it can build a different archive. Store backups on
+    media you trust. If you need to move a backup through an untrusted channel,
+    encrypt it with a tool you trust first; PaperOS cannot open an externally
+    encrypted container directly.
+  </p>
+  <p>
+    Restoring a backup replaces the current library after validation and after
+    creating a private safety snapshot. A malicious but structurally valid
+    backup can still replace the library if you confirm it. Integrity checks
+    are not a trust decision.
+  </p>
+
+  <h2>Deleting your data</h2>
+  <p>You can delete data in these ways:</p>
+  <ul>
+    <li><strong>Remove every document:</strong> Settings &rarr; Storage &rarr;
+      Remove every document deletes the library copies and reading data. Notes
+      and tasks are kept.</li>
+    <li><strong>Delete individual items:</strong> remove documents from the
+      library, and delete notes and tasks from their screens.</li>
+    <li><strong>Uninstall PaperOS:</strong> Android removes the app's private
+      storage, including its database, settings, library copies, covers, trash
+      and safety snapshots.</li>
+  </ul>
+  <p>These actions do <strong>not</strong> delete:</p>
+  <ul>
+    <li>the original documents you imported;</li>
+    <li>backup files you exported to another folder or device;</li>
+    <li>files you shared or exported through Android;</li>
+    <li>copies made by other apps or by an operating-system backup tool.</li>
+  </ul>
+  <p>
+    PaperOS has no account to delete and no server-side copy to request.
+  </p>
+
+  <h2>Children</h2>
+  <p>
+    PaperOS does not create accounts, show advertising or collect personal
+    information from any user, including children. Documents and notes are
+    supplied by the user. The Google Play target-audience and content-rating
+    declarations are completed by the developer in Play Console; this policy
+    does not replace those declarations.
+  </p>
+
+  <h2>Third-party components</h2>
+  <p>
+    PaperOS uses open-source Flutter and Android libraries for local storage,
+    ZIP handling, cryptography, XML parsing, file selection and user-interface
+    rendering. They are packaged inside the app and are not configured to
+    collect analytics or transmit data. The app bundles the Noto Serif font
+    under the SIL Open Font License 1.1.
+  </p>
+
+  <h2>Changes to this policy</h2>
+  <p>
+    This policy describes PaperOS 1.4.0+5. If a later version changes what the
+    app stores, where it sends data, or how backups work, this policy must be
+    updated before that version is published. The effective date at the top
+    identifies the version being described.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    <strong>Publication blocker:</strong> no verified developer contact has
+    been supplied for this policy. A real support email address or other
+    contact method must be added here before the policy is published. Do not
+    publish this draft with an invented or placeholder address.
+  </p>
+
+  <h2 id="publication-status">Publication status</h2>
+  <p>
+    <strong>Publication blocker:</strong> this page is a repository draft. It
+    is not hosted at a public URL, and no public URL has been verified. Google
+    Play requires a publicly reachable privacy-policy URL before a listing can
+    be published.
+  </p>
+  <p>Before publication, the developer must:</p>
+  <ol>
+    <li>add a real developer contact method to this policy;</li>
+    <li>publish this HTML file at a stable public HTTPS URL;</li>
+    <li>open that URL in a browser and confirm it loads without
+      authentication;</li>
+    <li>enter the verified URL in Play Console and keep it available for as
+      long as the app is listed;</li>
+    <li>update the policy whenever the app's data behaviour changes.</li>
+  </ol>
+  <p>
+    Until those steps are complete, the absence of a public policy URL and a
+    developer contact is a release blocker, not a completed privacy claim.
+  </p>
+
+  <footer>
+    PaperOS privacy policy &middot; version 1.4.0+5 &middot; 16 November 2026
+  </footer>
+</main>
+</body>
+</html>

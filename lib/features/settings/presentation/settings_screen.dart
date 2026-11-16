@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
@@ -161,6 +164,8 @@ class SettingsScreen extends ConsumerWidget {
           _Section(
             title: 'Paper Home',
             children: <Widget>[
+              const _HomeTitleEditor(),
+              const PaperRule(inset: PaperSpace.gutter),
               PaperSettingRow(
                 label: 'Clock',
                 subtitle: 'A live 24-hour clock at the top of Paper Home.',
@@ -219,9 +224,136 @@ class SettingsScreen extends ConsumerWidget {
   }
 }
 
+/// Editable Paper Home heading.
+///
+/// The text controller is created once. Every keystroke updates the in-memory
+/// settings immediately, so Paper Home and the preview below the field show the
+/// new title at once; the controller coalesces the disk write. Leaving the
+/// field flushes any pending value, and resetting restores `PaperOS`.
+class _HomeTitleEditor extends ConsumerStatefulWidget {
+  const _HomeTitleEditor();
+
+  @override
+  ConsumerState<_HomeTitleEditor> createState() => _HomeTitleEditorState();
+}
+
+class _HomeTitleEditorState extends ConsumerState<_HomeTitleEditor> {
+  late final TextEditingController _text;
+  late final FocusNode _focus;
+  late final SettingsController _settings;
+
+  @override
+  void initState() {
+    super.initState();
+    _settings = ref.read(settingsProvider.notifier);
+    _text = TextEditingController(
+      text: ref.read(settingsProvider).home.displayName,
+    );
+    _focus = FocusNode()..addListener(_onFocusChanged);
+  }
+
+  @override
+  void dispose() {
+    _focus
+      ..removeListener(_onFocusChanged)
+      ..dispose();
+    // The notifier was captured in initState, so flushing here does not read
+    // the provider during disposal.
+    unawaited(_settings.flushHomeDisplayName());
+    _text.dispose();
+    super.dispose();
+  }
+
+  void _onFocusChanged() {
+    if (_focus.hasFocus) return;
+    _settings.flushHomeDisplayName();
+    final String stored = ref.read(settingsProvider).home.displayName;
+    if (_text.text != stored) _text.text = stored;
+  }
+
+  Future<void> _reset() async {
+    await _settings.resetHomeDisplayName();
+    if (!mounted) return;
+    _text.text = HomeSettings.defaultDisplayName;
+    _focus.unfocus();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final PaperTypography type = PaperTypography.of(context);
+    final String displayName = ref.watch(
+      settingsProvider.select(
+        (AppSettings settings) => settings.home.displayName,
+      ),
+    );
+
+    // Keep the field in sync with a backup restore or a reset performed
+    // elsewhere, but never fight the user while they are typing.
+    ref.listen<String>(
+      settingsProvider.select(
+        (AppSettings settings) => settings.home.displayName,
+      ),
+      (String? previous, String next) {
+        if (_focus.hasFocus || _text.text == next) return;
+        _text.text = next;
+      },
+    );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        PaperSpace.gutter,
+        PaperSpace.md,
+        PaperSpace.gutter,
+        PaperSpace.sm,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(child: Text('Home title', style: type.body)),
+              TextButton(
+                onPressed: displayName == HomeSettings.defaultDisplayName
+                    ? null
+                    : _reset,
+                child: const Text('Reset'),
+              ),
+            ],
+          ),
+          TextField(
+            controller: _text,
+            focusNode: _focus,
+            style: type.input,
+            textCapitalization: TextCapitalization.words,
+            textInputAction: TextInputAction.done,
+            maxLength: HomeSettings.maxDisplayNameLength,
+            maxLengthEnforcement: MaxLengthEnforcement.enforced,
+            onChanged: _settings.setHomeDisplayName,
+            onSubmitted: (_) {
+              _settings.flushHomeDisplayName();
+              _focus.unfocus();
+            },
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: HomeSettings.defaultDisplayName,
+              helperText:
+                  'Shown at the top of Paper Home. This does not rename the '
+                  'installed app.',
+              helperMaxLines: 2,
+              counterText: '',
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: PaperSpace.sm),
+          Text('Preview: $displayName', style: type.caption),
+        ],
+      ),
+    );
+  }
+}
+
 class _DisplaySection extends ConsumerWidget {
   const _DisplaySection();
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final PaperTypography type = PaperTypography.of(context);
@@ -743,6 +875,12 @@ class _AboutSection extends StatelessWidget {
               'schema v${PaperConfig.databaseVersion}',
         ),
         const PaperRule(inset: PaperSpace.gutter),
+        PaperSettingRow(
+          label: 'Privacy',
+          subtitle: 'What PaperOS stores, and what it never sends.',
+          onTap: () => _showPrivacy(context),
+        ),
+        const PaperRule(inset: PaperSpace.gutter),
         const PaperSettingRow(
           label: 'Reading faces',
           subtitle:
@@ -750,6 +888,151 @@ class _AboutSection extends StatelessWidget {
               'app so the reader looks the same offline.',
         ),
       ],
+    );
+  }
+
+  void _showPrivacy(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      sheetAnimationStyle: paperModalAnimationStyle(context),
+      isScrollControlled: true,
+      backgroundColor: paperPalette(context).canvas,
+      barrierColor: paperPalette(context).ink.withValues(alpha: 0.32),
+      shape: const RoundedRectangleBorder(),
+      builder: (BuildContext sheetContext) => const _PrivacySheet(),
+    );
+  }
+}
+
+/// A short, self-contained privacy statement.
+///
+/// It deliberately avoids a URL: the public policy page and developer contact
+/// are publication blockers recorded in `docs/privacy-policy.md`. This sheet
+/// states the verified behaviour without inventing either.
+class _PrivacySheet extends StatelessWidget {
+  const _PrivacySheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final PaperTypography type = PaperTypography.of(context);
+    return SafeArea(
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.82,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                PaperSpace.gutter,
+                PaperSpace.lg,
+                PaperSpace.gutter,
+                PaperSpace.sm,
+              ),
+              child: Row(
+                children: <Widget>[
+                  Expanded(child: Text('Privacy', style: type.heading)),
+                  PaperButton(
+                    label: 'Done',
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+            const PaperRule(strong: true),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                padding: const EdgeInsets.fromLTRB(
+                  PaperSpace.gutter,
+                  PaperSpace.md,
+                  PaperSpace.gutter,
+                  PaperSpace.xl,
+                ),
+                children: const <Widget>[
+                  _PrivacyParagraph(
+                    title: 'On this device',
+                    body:
+                        'PaperOS keeps your library, reading progress, '
+                        'bookmarks, annotations, notes, tasks and settings in '
+                        'private app storage on this device.',
+                  ),
+                  _PrivacyParagraph(
+                    title: 'No network, no account',
+                    body:
+                        'The release build has no network permission and no '
+                        'account system. PaperOS contains no analytics, '
+                        'advertising, telemetry or crash-reporting service. '
+                        'Debug builds add network access only for the Flutter '
+                        'development tool.',
+                  ),
+                  _PrivacyParagraph(
+                    title: 'Documents you choose',
+                    body:
+                        'PaperOS reads a document only when you pick it with '
+                        'the Android document picker, or a folder you grant in '
+                        'Files. It copies the document into private app '
+                        'storage; the original stays where it was.',
+                  ),
+                  _PrivacyParagraph(
+                    title: 'The app drawer',
+                    body:
+                        'PaperOS asks Android for launchable app names, icons '
+                        'and launch information so the drawer can open them. '
+                        'It does not read other apps’ data or request broad '
+                        'package access.',
+                  ),
+                  _PrivacyParagraph(
+                    title: 'Backups are not encrypted',
+                    body:
+                        'A PaperOS backup is a plain ZIP file. It contains '
+                        'books, covers, reading progress, bookmarks, '
+                        'annotations, notes, tasks and settings. It is not '
+                        'encrypted or digitally signed, so anyone who can read '
+                        'the file can read its contents. Store it somewhere '
+                        'you trust.',
+                  ),
+                  _PrivacyParagraph(
+                    title: 'Deleting your data',
+                    body:
+                        'Settings → Storage → Remove every document deletes '
+                        'the library copies and reading data. Notes and tasks '
+                        'can be deleted individually. Uninstalling PaperOS '
+                        'removes its private storage. Backups and files you '
+                        'saved elsewhere are not deleted by uninstalling.',
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PrivacyParagraph extends StatelessWidget {
+  const _PrivacyParagraph({required this.title, required this.body});
+
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    final PaperTypography type = PaperTypography.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: PaperSpace.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(title, style: type.body),
+          const SizedBox(height: PaperSpace.xs),
+          Text(body, style: type.caption),
+        ],
+      ),
     );
   }
 }

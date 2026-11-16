@@ -1031,11 +1031,9 @@ List<TextSpan> _annotationSpans({
       final bool underline = active.any(
         (EpubAnnotationSpan span) => span.kind == AnnotationKind.underline.id,
       );
-      if (highlight) style = style.copyWith(backgroundColor: palette.rule);
+      if (highlight) style = style.copyWith(backgroundColor: palette.highlight);
       if (note) {
-        style = style.copyWith(
-          backgroundColor: palette.inkFaint.withValues(alpha: 0.18),
-        );
+        style = style.copyWith(backgroundColor: palette.noteFill);
       }
       if (underline || note) {
         style = style.copyWith(
@@ -1168,7 +1166,10 @@ class _ReaderTopBar extends StatelessWidget {
       visible: visible,
       fromTop: true,
       child: Container(
-        color: palette.canvas,
+        decoration: BoxDecoration(
+          color: palette.canvas,
+          border: Border(bottom: BorderSide(color: palette.rule)),
+        ),
         padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top),
         child: SizedBox(
           height: kReaderTopBarHeight,
@@ -1348,7 +1349,10 @@ class _ReaderBottomBar extends StatelessWidget {
       visible: visible,
       fromTop: false,
       child: Container(
-        color: palette.canvas,
+        decoration: BoxDecoration(
+          color: palette.canvas,
+          border: Border(top: BorderSide(color: palette.rule)),
+        ),
         padding: EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom),
         child: SizedBox(
           height: kReaderBottomBarHeight,

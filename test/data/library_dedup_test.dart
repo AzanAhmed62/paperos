@@ -170,8 +170,118 @@ void main() {
       expect(document.localPath, isNot(source.path));
       expect(document.coverPath, isNotNull);
       expect(File(document.coverPath!).existsSync(), isTrue);
+
+      // The one-pass copy renames its `.part` file into place; no temporary
+      // copy is left behind for the next library scan to trip over.
+      final Directory library = Directory(p.join(temp.path, 'library'));
+      expect(
+        library.listSync().whereType<File>().where(
+          (File file) => file.path.endsWith('.part'),
+        ),
+        isEmpty,
+      );
     },
   );
+
+  test(
+    'keeps a malformed EPUB as an unreadable row, not a lost import',
+    () async {
+      final File source = File(p.join(temp.path, 'bad.epub'));
+      await source.writeAsBytes(<int>[1, 2, 3, 4], flush: true);
+
+      final Document document = await service.importFile(
+        PickedFile(
+          path: source.path,
+          name: 'bad.epub',
+          byteSize: await source.length(),
+          sourceUri: 'content://provider/bad',
+        ),
+      );
+
+      expect(document.status, DocumentStatus.unreadable);
+      expect(document.title, 'bad');
+      expect(File(document.localPath).existsSync(), isTrue);
+      expect(document.coverPath, isNull);
+      expect(await documents.count(), 1);
+    },
+  );
+
+  test('an empty file is refused and leaves no row or partial copy', () async {
+    final File source = File(p.join(temp.path, 'empty.epub'));
+    await source.writeAsBytes(const <int>[], flush: true);
+
+    await expectLater(
+      service.importFile(
+        PickedFile(
+          path: source.path,
+          name: 'empty.epub',
+          byteSize: 0,
+          sourceUri: 'content://provider/empty',
+        ),
+      ),
+      throwsA(
+        isA<PaperException>().having(
+          (PaperException error) => error.message,
+          'message',
+          contains('empty'),
+        ),
+      ),
+    );
+
+    expect(await documents.count(), 0);
+    final Directory library = Directory(p.join(temp.path, 'library'));
+    if (library.existsSync()) {
+      expect(library.listSync().whereType<File>(), isEmpty);
+    }
+  });
+
+  test('refuses a recognised format this build cannot open', () async {
+    final File source = File(p.join(temp.path, 'draft.docx'));
+    await source.writeAsBytes(const <int>[1, 2, 3], flush: true);
+
+    await expectLater(
+      service.importFile(
+        PickedFile(
+          path: source.path,
+          name: 'draft.docx',
+          byteSize: await source.length(),
+          sourceUri: 'content://provider/docx',
+        ),
+      ),
+      throwsA(
+        isA<PaperException>().having(
+          (PaperException error) => error.message,
+          'message',
+          allOf(contains('DOCX'), contains('does not open it yet')),
+        ),
+      ),
+    );
+    expect(await documents.count(), 0);
+  });
+
+  test('refuses an unknown format with a clear message', () async {
+    final File source = File(p.join(temp.path, 'mystery.xyz'));
+    await source.writeAsBytes(const <int>[1, 2, 3], flush: true);
+
+    await expectLater(
+      service.importFile(
+        PickedFile(
+          path: source.path,
+          name: 'mystery.xyz',
+          byteSize: await source.length(),
+          sourceUri: 'content://provider/xyz',
+        ),
+      ),
+      throwsA(
+        isA<PaperException>().having(
+          (PaperException error) => error.message,
+          'message',
+          contains('cannot read'),
+        ),
+      ),
+    );
+    expect(await documents.count(), 0);
+  });
 
   test('re-importing the same source is a no-op, not a second row', () async {
     final File source = await sourceFile('same.epub');

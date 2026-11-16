@@ -16,12 +16,33 @@ import '../domain/app_settings.dart';
 class SettingsController extends Notifier<AppSettings> {
   SettingsRepository get _repository => ref.read(settingsRepositoryProvider);
 
-  @override
-  AppSettings build() => _repository.load();
+  Future<void> _writeQueue = Future<void>.value();
+  Timer? _displayNameSaveTimer;
+  String? _pendingDisplayName;
 
-  Future<void> _write(AppSettings next) async {
+  @override
+  AppSettings build() {
+    ref.onDispose(() {
+      _displayNameSaveTimer?.cancel();
+      _displayNameSaveTimer = null;
+    });
+    return _repository.load();
+  }
+
+  /// Updates the in-memory document immediately and serialises the disk write.
+  ///
+  /// The queue matters because the settings document is one JSON value: if two
+  /// writes overlap, a slower earlier write must never land after a newer one.
+  Future<void> _write(AppSettings next) {
     state = next;
-    await _repository.save(next);
+    final Future<void> write = _writeQueue.then((_) => _repository.save(next));
+    // Keep the chain alive after a failed write so a later change can still
+    // persist. The caller still receives the original error.
+    _writeQueue = write.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stack) {},
+    );
+    return write;
   }
 
   Future<void> setPaperStyle(PaperStyle style) => _write(
@@ -130,6 +151,41 @@ class SettingsController extends Notifier<AppSettings> {
 
   Future<void> setShowClock(bool show) =>
       _write(state.copyWith(home: state.home.copyWith(showClock: show)));
+
+  /// Replaces the Paper Home heading.
+  ///
+  /// State changes immediately so Home and the Settings preview update as the
+  /// user types. The disk write is coalesced: a burst of keystrokes produces
+  /// one settings write, not one per character. [flushHomeDisplayName] forces
+  /// the pending value out when the field loses focus or Settings closes.
+  Future<void> setHomeDisplayName(String value) {
+    final String normalised = HomeSettings.normaliseDisplayName(value);
+    if (normalised == state.home.displayName) return Future<void>.value();
+    state = state.copyWith(home: state.home.copyWith(displayName: normalised));
+    _pendingDisplayName = normalised;
+    _displayNameSaveTimer?.cancel();
+    _displayNameSaveTimer = Timer(
+      const Duration(milliseconds: 350),
+      () => unawaited(flushHomeDisplayName()),
+    );
+    return Future<void>.value();
+  }
+
+  Future<void> flushHomeDisplayName() async {
+    _displayNameSaveTimer?.cancel();
+    _displayNameSaveTimer = null;
+    if (_pendingDisplayName == null) return;
+    _pendingDisplayName = null;
+    await _write(state);
+  }
+
+  Future<void> resetHomeDisplayName() async {
+    _displayNameSaveTimer?.cancel();
+    _displayNameSaveTimer = null;
+    _pendingDisplayName = null;
+    await setHomeDisplayName(HomeSettings.defaultDisplayName);
+    await flushHomeDisplayName();
+  }
 
   Future<void> setAskOnExit(bool ask) => _write(state.copyWith(askOnExit: ask));
 

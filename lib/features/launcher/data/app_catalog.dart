@@ -9,8 +9,12 @@ import '../../../core/platform/launcher_service.dart';
 /// searching must never touch a platform channel, so the drawer stays instant
 /// and the logic is unit testable without a device.
 abstract final class AppCatalogQuery {
-  /// Orders apps for display: pinned favourites first (in pin order), then
-  /// user-installed apps, then system apps, each group alphabetical.
+  /// Orders apps for display.
+  ///
+  /// One canonical rule: pinned apps first in the user's pin order, then every
+  /// remaining visible app in one alphabetical sequence. System status is a
+  /// filter, never a second sorting group, so enabling system apps does not
+  /// create a second A–Z block after the user-installed apps.
   static List<InstalledApp> arrange(
     List<InstalledApp> apps, {
     required List<String> favoritePackages,
@@ -22,19 +26,46 @@ abstract final class AppCatalogQuery {
               .where((InstalledApp app) => !app.isSystem)
               .toList(growable: false);
 
-    final Map<String, int> pinOrder = <String, int>{
-      for (int i = 0; i < favoritePackages.length; i++) favoritePackages[i]: i,
-    };
+    // A launcher shows one icon per package. If the platform ever reports two
+    // launchable activities for one package, keep a deterministic representative
+    // rather than rendering a duplicate row.
+    final Map<String, InstalledApp> byPackage = <String, InstalledApp>{};
+    for (final InstalledApp app in visible) {
+      final InstalledApp? current = byPackage[app.packageName];
+      if (current == null ||
+          app.activityName.compareTo(current.activityName) < 0) {
+        byPackage[app.packageName] = app;
+      }
+    }
 
-    final List<InstalledApp> sorted = List<InstalledApp>.of(visible);
-    sorted.sort((InstalledApp a, InstalledApp b) {
-      final int pinA = pinOrder[a.packageName] ?? 1 << 20;
-      final int pinB = pinOrder[b.packageName] ?? 1 << 20;
-      if (pinA != pinB) return pinA.compareTo(pinB);
-      if (a.isSystem != b.isSystem) return a.isSystem ? 1 : -1;
-      return a.label.toLowerCase().compareTo(b.label.toLowerCase());
-    });
-    return sorted;
+    final List<InstalledApp> pinned = <InstalledApp>[];
+    final Set<String> pinnedPackages = <String>{};
+    for (final String packageName in favoritePackages) {
+      final InstalledApp? app = byPackage[packageName];
+      if (app != null && pinnedPackages.add(packageName)) pinned.add(app);
+    }
+
+    final List<InstalledApp> remaining = byPackage.values
+        .where((InstalledApp app) => !pinnedPackages.contains(app.packageName))
+        .toList();
+    remaining.sort(_compare);
+
+    return <InstalledApp>[...pinned, ...remaining];
+  }
+
+  /// Case-insensitive label, then package, then activity. Every tie-break is
+  /// deterministic so repeated reads of the same catalogue never reorder rows.
+  static int _compare(InstalledApp a, InstalledApp b) {
+    final int byLabel = _normalisedLabel(a).compareTo(_normalisedLabel(b));
+    if (byLabel != 0) return byLabel;
+    final int byPackage = a.packageName.compareTo(b.packageName);
+    if (byPackage != 0) return byPackage;
+    return a.activityName.compareTo(b.activityName);
+  }
+
+  static String _normalisedLabel(InstalledApp app) {
+    final String label = app.label.trim();
+    return (label.isEmpty ? app.packageName : label).toLowerCase();
   }
 
   /// Case-insensitive substring search over label then package name.

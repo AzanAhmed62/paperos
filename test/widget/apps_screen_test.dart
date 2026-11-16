@@ -63,10 +63,18 @@ void main() {
     expect(find.text('Pinned'), findsOneWidget);
     expect(find.text('Recent'), findsOneWidget);
     expect(find.text('All apps'), findsOneWidget);
-    expect(find.text('Reader'), findsWidgets);
-    expect(find.text('Notes'), findsWidgets);
-    expect(find.byTooltip('Unpin Notes'), findsOneWidget);
+    // Reader is recent and also appears in the one alphabetical list. Notes is
+    // pinned and must not be duplicated as an All apps row.
+    expect(find.text('Reader'), findsNWidgets(2));
+    expect(find.text('Notes'), findsOneWidget);
+    expect(find.byTooltip('Unpin Notes'), findsNothing);
     expect(find.byTooltip('Pin Reader'), findsOneWidget);
+
+    // A pinned app is still manageable from its strip tile: long-press unpins.
+    await tester.longPress(find.text('Notes'));
+    await tester.pump();
+    expect(find.text('Pinned'), findsNothing);
+    expect(find.byTooltip('Pin Notes'), findsOneWidget);
   });
 
   testWidgets('tapping a row launches it and pinning is reversible', (
@@ -83,10 +91,16 @@ void main() {
 
     await tester.tap(find.byTooltip('Pin Reader'));
     await tester.pump();
-    expect(find.byTooltip('Unpin Reader'), findsOneWidget);
+    expect(find.text('Pinned'), findsOneWidget);
+    // Reader is in the pinned strip and also in the Recent strip. The All apps
+    // list no longer repeats it.
+    expect(find.text('Reader'), findsNWidgets(2));
+    expect(find.byTooltip('Unpin Reader'), findsNothing);
 
-    await tester.tap(find.byTooltip('Unpin Reader'));
+    // The pinned strip tile is the first Reader in the tree; long-press unpins.
+    await tester.longPress(find.text('Reader').first);
     await tester.pump();
+    expect(find.text('Pinned'), findsNothing);
     expect(find.byTooltip('Pin Reader'), findsOneWidget);
   });
 
@@ -106,7 +120,7 @@ void main() {
     expect(launcher.loadCount, 2);
   });
 
-  testWidgets('a restricted empty catalogue explains itself', (
+  testWidgets('an empty catalogue states the fact without guessing why', (
     WidgetTester tester,
   ) async {
     await pumpApps(
@@ -114,8 +128,9 @@ void main() {
       FakeLauncherService(apps: const <InstalledApp>[], restricted: true),
     );
 
-    expect(find.text('The app list looks incomplete'), findsOneWidget);
+    expect(find.text('No launchable apps reported'), findsOneWidget);
     expect(find.text('Reload'), findsOneWidget);
+    expect(find.text('The app list looks incomplete'), findsNothing);
   });
 
   testWidgets('the show-icons preference reaches every icon', (

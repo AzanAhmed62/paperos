@@ -29,6 +29,7 @@ void main() {
     expect(settings.launcher.showRecents, isTrue);
     expect(settings.home.showDate, isTrue);
     expect(settings.home.density, HomeDensity.comfortable);
+    expect(settings.home.displayName, HomeSettings.defaultDisplayName);
     expect(settings.askOnExit, isTrue);
   });
 
@@ -55,6 +56,7 @@ void main() {
         recentPackages: <String>['com.example.notes', 'com.example.reader'],
       ),
       home: const HomeSettings(
+        displayName: 'Quiet Hours',
         hiddenSections: <HomeSection>{HomeSection.today, HomeSection.search},
         showClock: false,
         showDate: false,
@@ -93,6 +95,7 @@ void main() {
       HomeSection.today,
       HomeSection.search,
     });
+    expect(loaded.home.displayName, 'Quiet Hours');
     expect(loaded.home.showClock, isFalse);
     expect(loaded.home.showDate, isFalse);
     expect(loaded.home.density, HomeDensity.compact);
@@ -125,6 +128,55 @@ void main() {
     expect(settings.launcher.favoritePackages, isEmpty);
     expect(settings.home.showClock, isTrue);
   });
+
+  test('normalises a Home title without losing Unicode', () {
+    expect(HomeSettings.normaliseDisplayName(null), 'PaperOS');
+    expect(HomeSettings.normaliseDisplayName(''), 'PaperOS');
+    expect(HomeSettings.normaliseDisplayName('   '), 'PaperOS');
+    expect(HomeSettings.normaliseDisplayName('  Quiet Hours  '), 'Quiet Hours');
+    expect(
+      HomeSettings.normaliseDisplayName('Reading — 読書 📚'),
+      'Reading — 読書 📚',
+    );
+
+    final String long = '📚' * (HomeSettings.maxDisplayNameLength + 4);
+    final String capped = HomeSettings.normaliseDisplayName(long);
+    expect(capped.runes.length, HomeSettings.maxDisplayNameLength);
+    // A capped value ends on a whole code point, never half a surrogate pair.
+    expect(capped, '📚' * HomeSettings.maxDisplayNameLength);
+    expect(capped.endsWith('📚'), isTrue);
+  });
+
+  test('reads the Home title from a v3 document', () async {
+    await preferences.setString(
+      SettingsRepository.settingsKey,
+      jsonEncode(<String, Object?>{
+        'version': 3,
+        'home': <String, Object?>{'displayName': '  Night Shelf  '},
+      }),
+    );
+
+    expect(repository.load().home.displayName, 'Night Shelf');
+  });
+
+  test(
+    'a v1 or v2 document without a Home title falls back to PaperOS',
+    () async {
+      for (final int version in <int>[1, 2]) {
+        await preferences.setString(
+          SettingsRepository.settingsKey,
+          jsonEncode(<String, Object?>{
+            'version': version,
+            'home': <String, Object?>{'showClock': false},
+          }),
+        );
+
+        final AppSettings settings = repository.load();
+        expect(settings.home.displayName, HomeSettings.defaultDisplayName);
+        expect(settings.home.showClock, isFalse);
+      }
+    },
+  );
 
   test('ignores an unknown enum value instead of throwing', () async {
     await preferences.setString(

@@ -198,7 +198,11 @@ class ReaderSession extends AsyncNotifier<ReaderState> {
     if (document.format == DocumentFormat.epub) {
       final EpubParseResult parsed;
       try {
-        parsed = ref.read(epubParserProvider).parseFile(document.localPath);
+        // Parsing happens on a background isolate: a large EPUB must not stall
+        // the frame that shows the reader opening.
+        parsed = await ref
+            .read(epubParserProvider)
+            .parseFileAsync(document.localPath);
       } on EpubParseException catch (error) {
         throw PaperException.corruptDocument(error.message);
       }

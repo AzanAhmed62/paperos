@@ -88,6 +88,19 @@ class NoteRepository {
     });
   }
 
+  /// Inserts an already-built note.
+  ///
+  /// The editor generates a stable id when it opens a new draft, so the first
+  /// meaningful autosave can create exactly one row and every later save is an
+  /// update of that same row.
+  Future<Note> insert(Note note) {
+    return _guard(() async {
+      await (await _db).insert('notes', _toRow(note));
+      _notify();
+      return note;
+    });
+  }
+
   Future<void> update(Note note) {
     return _guard(() async {
       await (await _db).update(
