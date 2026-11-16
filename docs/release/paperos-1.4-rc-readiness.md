@@ -2,7 +2,7 @@
 
 **Release:** PaperOS 1.4.0+5 (`dev.paperos.app`)
 **Branch:** `feat/paperos-1.4-polish-performance`
-**Commit under review:** `8b2e7a7`
+**Commit under review:** `904d622`
 **Report date:** 16 November 2026
 **Assessment:** **Conditionally ready for RC testing. Not production-ready.**
 
@@ -25,28 +25,38 @@ The release is **not** ready for production or for a Play upload:
   is **Not run**;
 - the privacy policy has no verified developer contact and no public HTTPS URL;
 - no Play Console account was used, so Data Safety, content rating, target
-  audience, listing assets and testing tracks are incomplete;
-- the uncommitted RC-phase changes have not run on remote CI.
+  audience, listing assets and testing tracks are incomplete.
 
-RC testing can begin with the debug APK for UI-only cases, but a signed artifact
-is required before any installable release candidate or internal-track upload
-can be evaluated.
+The RC commit `904d622` is pushed and remote CI run `43924464510` passed both
+jobs. RC testing can begin with the debug APK for UI-only cases, but a signed
+artifact is required before any installable release candidate or internal-track
+upload can be evaluated.
 
 ## Repository state
 
 | Item | Observed state |
 | --- | --- |
 | Branch | `feat/paperos-1.4-polish-performance` |
-| HEAD | `8b2e7a7` (`8b2e7a7d276f4514ad8b5ad3f569c4a16ac3707a`) |
+| HEAD | `904d622` (`904d6225cdf7e0ac9c7c1cefabdc274f76037dad`) |
 | `origin/main` | `b333155` (`b333155a3d7d59e450ee04b8a49527ccfedda8f9`) |
-| Pull request | [#1](https://github.com/AzanAhmed62/paperos/pull/1), open, not draft, mergeable, not merged |
-| PR diff at `8b2e7a7` | 48 files changed, +2,756 / −527 |
-| Remote CI | Run `43714869648` on `8b2e7a7`: format/analyse/test **success**, Android debug build **success** |
-| Working tree | 17 files: 11 modified, 6 new (including this report); uncommitted; nothing pushed |
-| Remote CI coverage | Does **not** include the uncommitted RC-phase changes |
+| Pull request | [#1](https://github.com/AzanAhmed62/paperos/pull/1), open, not draft, mergeable, not merged; head `904d622` |
+| PR diff at `904d622` | 55 files changed, +4,543 / −576 |
+| Remote CI | Run `43924464510` on `904d622`: format/analyse/test **success**, Android debug build **success**, overall **success**. Previous run `43714869648` passed on `8b2e7a7`. |
+| Working tree | Clean; RC commit `904d622` pushed to `origin/feat/paperos-1.4-polish-performance` |
+| Remote CI coverage | Includes the RC commit `904d622`; run `43924464510` passed both jobs |
 
-No commit, push, merge, release, GitHub setting change or remote branch change
-was performed during this audit.
+The RC commit was pushed to the existing feature branch. No merge, release,
+GitHub setting change or remote branch change was performed.
+
+### Remote verification
+
+- **Commit:** `904d6225cdf7e0ac9c7c1cefabdc274f76037dad` — `chore: prepare PaperOS 1.4 release candidate`.
+- **Push:** normal fast-forward to `origin/feat/paperos-1.4-polish-performance`; no force-push.
+- **PR:** [#1](https://github.com/AzanAhmed62/paperos/pull/1) head updated to `904d622`; still open and unmerged against `main` (`b333155`).
+- **CI:** [run 43924464510](https://github.com/AzanAhmed62/paperos/actions/runs/43924464510), workflow `CI`, run number 2, overall **success**:
+  - `Format, analyze and test`: **success**.
+  - `Android debug build`: **success**.
+- **RC-2 full-suite duration:** **110.50 s** (254 tests).
 
 ## RC-phase work completed
 
@@ -97,7 +107,7 @@ produced.
 | --- | --- | --- |
 | Dart formatting | **PASS** | `dart format --output=none --set-exit-if-changed lib test`: 128 files, 0 changed |
 | Static analysis | **PASS** | `flutter analyze --no-pub`: no issues found |
-| Full automated suite | **PASS** | 254 tests passed in 102.24 s |
+| Full automated suite | **PASS** | 254 tests passed in 110.50 s (RC-2 run) |
 | Debug APK build | **PASS** | `app-debug.apk`, 197,526,652 bytes, debug-signed |
 | Unsigned universal release APK | **PASS** | `app-release-unsigned.apk`, 58,651,176 bytes |
 | Unsigned split-ABI release APKs | **PASS** | armeabi-v7a, arm64-v8a and x86_64 built |
@@ -115,7 +125,7 @@ produced.
 | In-app privacy sheet on device | **NOT RUN** | Widget test passes; device layout/large-text check not run |
 | Privacy-policy publication | **BLOCKED** | No verified developer contact or public HTTPS URL |
 | Play Console declarations/listing | **BLOCKED** | No Play Console access; owner actions outstanding |
-| Remote CI on RC-phase changes | **NOT RUN** | Changes are uncommitted; only `8b2e7a7` is remotely verified |
+| Remote CI on RC-phase changes | **PASS** | Run `43924464510` on `904d622`: both jobs success, overall success |
 
 ## Artifact evidence
 
@@ -185,17 +195,17 @@ evidence.
 | Play Console declarations | No account access was used. | Complete Data Safety, ads, content rating, target audience and all other app-content declarations in Play Console. |
 | Store listing assets | No Play-ready screenshots, feature graphic or icon export. | Capture real screenshots and create the feature graphic from the shipped build; do not stage features that do not exist. |
 | Testing track | Not started. | Upload the signed AAB to internal testing, install from the track on a device and repeat the core checklist. |
-| Remote CI coverage | RC-phase changes are uncommitted. | Review the diff, commit and push to PR #1, and wait for remote CI to pass on the new commit. |
 
 ## Exact next step
 
-**Review the uncommitted RC diff (17 files: 11 modified, 6 new, including this
-report) and authorize a commit and push to PR #1 so remote CI verifies the
-RC-phase changes.** This is the only remaining local verification gap. Do not
-upload the unsigned artifacts, publish the privacy draft with a placeholder, or
-describe the build as device-tested or production-signed.
+**Supply owner signing credentials, build a signed AAB, and install it on a
+physical device to run rows 49–62.** Remote CI is green on `904d622`; the
+remaining release gates are signing, device validation, privacy publication and
+Play Console declarations. Do not upload the unsigned artifacts, publish the
+privacy draft with a placeholder, or describe the build as device-tested or
+production-signed.
 
-After that CI run passes, the release sequence is:
+The release sequence is:
 
 1. supply owner signing credentials and build a signed AAB;
 2. verify the signature and install the signed build on a physical device;

@@ -340,8 +340,8 @@ abandoned-`.part` cleanup, EPUB background-failure and in-app privacy tests. All
 GitHub Actions runs formatting, analysis, the full test suite and a debug APK
 build on pushes to `main` and on pull requests; see
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Remote run
-`43714869648` passed on commit `8b2e7a7`. The uncommitted RC-1 changes have not
-run remotely.
+[`43924464510`](https://github.com/AzanAhmed62/paperos/actions/runs/43924464510)
+passed both jobs on the RC commit `904d622`; PR #1 remains open and unmerged.
 
 A physical OnePlus 6T (`ONEPLUS A6010`, Android 11 / API 30) was used for a
 partial v1.3 runtime run: install and launch, Library/Back, app-drawer
